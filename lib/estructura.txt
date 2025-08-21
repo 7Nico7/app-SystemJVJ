@@ -1,0 +1,38 @@
+lib/
+│
+├── core/                    # Funciones generales reutilizables (network, theme, utils)
+│   ├── constants/           # Constantes globales
+│   ├── services/            # Servicios generales como API, local storage, etc.
+│   ├── utils/               # Funciones helper
+│   └── widgets/             # Widgets reutilizables
+│
+├── features/
+│   ├── evidence/            # Módulo de evidencias fotográficas
+│   │   ├── data/            # Modelos, servicios API, etc.
+│   │   ├── domain/          # Entidades y casos de uso
+│   │   ├── presentation/    # Vistas y widgets
+│   │   └── controller/      # BLoC, Provider, Riverpod, etc.
+│   │
+│   ├── activities/          # Módulo de formulario de actividades
+│   │   ├── data/
+│   │   ├── domain/
+│   │   ├── presentation/
+│   │   └── controller/
+│   │
+│   └── home/                # Pantalla inicial con navegación, etc.
+│
+├── routes/                  # Navegación central
+│   └── app_routes.dart
+│
+├── main.dart                # Punto de entrada
+└── app.dart                 # Widget base del proyecto
+
+
+lista de emuladores
+-flutter emulators
+
+Levanta el emulador
+-flutter emulators --launch flutter emulator
+
+Corre el proyecto dentro el emulador
+-flutter run -d emulator-5554

@@ -1,0 +1,562 @@
+/* import 'dart:io';
+import 'package:connectivity_plus/connectivity_plus.dart';
+import 'package:dio/dio.dart';
+import 'package:flutter/widgets.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:provider/provider.dart';
+import 'package:systemjvj/core/utils/urlBase.dart';
+import 'package:systemjvj/schedule/providers/schedule_provider.dart';
+import 'package:systemjvj/schedule/repository/databaseHelper.dart';
+import 'package:workmanager/workmanager.dart';
+import 'local_db.dart';
+
+class SyncService {
+  static const int STATUS_DRAFT = 0;
+  static const int STATUS_PENDING = 1;
+  static const int STATUS_CONCLUDED = 2;
+  static const int STATUS_SYNCED = 3;
+
+  final Dio dio = Dio();
+  final LocalDB localDB = LocalDB();
+  final FlutterSecureStorage storage = const FlutterSecureStorage();
+  String baseUrl = BASE_URL;
+
+  Future<bool> checkConnectivity() async {
+    var connectivityResult = await Connectivity().checkConnectivity();
+    return connectivityResult != ConnectivityResult.none;
+  }
+
+  Future<bool> syncInspection(String localId) async {
+    try {
+      // 1. Obtener token de autenticación
+      final token = await storage.read(key: 'access_token');
+      if (token == null) {
+        print(' SYNC Token de autenticación no encontrado');
+        return false;
+      }
+
+      // 2. Obtener datos de inspección local
+      final inspection = await localDB.getInspection(localId);
+      if (inspection == null || inspection['status'] != STATUS_CONCLUDED) {
+        print(' SYNC Inspección no encontrada o no está concluida');
+        return false;
+      }
+
+      // 3. Obtener checks y fotos
+      final checks = await localDB.getChecksForInspection(localId);
+      final photos = await localDB.getPhotosForInspection(localId);
+
+      print(' SYNC Datos inspección: ${inspection['inspection_id']}');
+      print(' SYNC Checks: ${checks.length}');
+      print(' SYNC Fotos: ${photos.length}');
+
+      // 4. Preparar lista de fotos generales y modificar checks
+      final List<Map<String, dynamic>> modifiedChecks = [];
+      final List<Map<String, dynamic>> generalPhotosData = [];
+      final List<File> filesToUpload = [];
+
+      // Procesar checks
+      for (var check in checks) {
+        final Map<String, dynamic> currentCheck = Map.from(check);
+        if (currentCheck['image_path'] != null) {
+          final path = currentCheck['image_path'] as String;
+          final file = File(path);
+          if (await file.exists()) {
+            final fileName = path.split('/').last;
+            currentCheck['image_path'] = fileName;
+            filesToUpload.add(file);
+          } else {
+            print(' SYNC Archivo de check no encontrado: $path');
+            currentCheck['image_path'] = null;
+          }
+        }
+        modifiedChecks.add(currentCheck);
+      }
+
+      // Procesar fotos generales
+      for (var photo in photos) {
+        final path = photo['image_path'] as String;
+        final file = File(path);
+        if (await file.exists()) {
+          final fileName = path.split('/').last;
+          generalPhotosData.add({
+            'file_name': fileName,
+            'type': photo['type'],
+            'description': photo['description'],
+          });
+          filesToUpload.add(file);
+        } else {
+          print(' SYNC Archivo de foto general no encontrado: $path');
+        }
+      }
+
+      print(' SYNC Total archivos adjuntos: ${filesToUpload.length}');
+
+      // 5. Construir FormData
+      final formData = FormData();
+
+      // Añadir datos básicos de la inspección
+      formData.fields.add(
+          MapEntry('inspectionId', inspection['inspection_id'].toString()));
+      formData.fields.add(
+          MapEntry('transportUnit', inspection['transport_unit'].toString()));
+      formData.fields.add(MapEntry(
+          'maintenanceType', inspection['maintenance_type'].toString()));
+      formData.fields
+          .add(MapEntry('horometer', inspection['horometer'].toString()));
+      formData.fields.add(MapEntry(
+          'serviceToPerform', inspection['service_to_perform'].toString()));
+      formData.fields
+          .add(MapEntry('inspectionConcluded', 'true')); // Nuevo campo
+
+      // Añadir 'checks' como un array de objetos
+      for (int i = 0; i < modifiedChecks.length; i++) {
+        formData.fields.add(MapEntry('checks[$i][maintenance_checks_id]',
+            modifiedChecks[i]['maintenance_checks_id'].toString()));
+        formData.fields.add(MapEntry(
+            'checks[$i][status]', modifiedChecks[i]['status'].toString()));
+        if (modifiedChecks[i]['comment'] != null) {
+          formData.fields.add(MapEntry(
+              'checks[$i][comment]', modifiedChecks[i]['comment'].toString()));
+        }
+        if (modifiedChecks[i]['image_path'] != null) {
+          formData.fields.add(MapEntry('checks[$i][image_path]',
+              modifiedChecks[i]['image_path'].toString()));
+        }
+      }
+
+      // Añadir 'general_photos' como un array de objetos
+      for (int i = 0; i < generalPhotosData.length; i++) {
+        formData.fields.add(MapEntry('general_photos[$i][file_name]',
+            generalPhotosData[i]['file_name'].toString()));
+        formData.fields.add(MapEntry('general_photos[$i][type]',
+            generalPhotosData[i]['type'].toString()));
+        if (generalPhotosData[i]['description'] != null) {
+          formData.fields.add(MapEntry('general_photos[$i][description]',
+              generalPhotosData[i]['description'].toString()));
+        }
+      }
+
+      // Añadir los archivos físicos
+      for (var file in filesToUpload) {
+        final fileName = file.path.split('/').last;
+        formData.files.add(MapEntry(
+          'photo_files[]',
+          await MultipartFile.fromFile(file.path, filename: fileName),
+        ));
+      }
+
+      // 6. Enviar solicitud al backend
+      final response = await dio.post(
+        '$baseUrl/api/inspections/save-full',
+        data: formData,
+        options: Options(
+          headers: {
+            'Authorization': 'Bearer $token',
+            'Accept': 'application/json',
+          },
+          sendTimeout: const Duration(seconds: 60),
+        ),
+      );
+
+      // 7. Procesar respuesta
+// En la sección de respuesta exitosa (código 200):
+      if (response.statusCode == 200) {
+        print(' SYNC Sincronización exitosa!');
+        await localDB.updateInspectionStatus(localId, STATUS_SYNCED);
+
+        // Actualizar la actividad relacionada con mejor logging
+        try {
+          final dbHelper = DatabaseHelper.instance;
+          final inspectionId = inspection['inspection_id'];
+          final transportUnitValue = inspection['transport_unit'].toString();
+
+          print(
+              ' SYNC Actualizando actividad: inspectionId=$inspectionId, concluded=true, transportUnit=$transportUnitValue');
+
+          final result = await dbHelper.updateActivityInspectionStatus(
+            inspectionId,
+            true,
+            transportUnitValue,
+          );
+
+          print(' SYNC Resultado de actualización: $result filas afectadas');
+
+          if (result > 0) {
+            print(' SYNC Actividad actualizada exitosamente');
+            // NOTA: No podemos acceder al ScheduleProvider desde aquí
+            // La actualización del UI se manejará desde otro lugar
+          } else {
+            print(
+                ' SYNC Advertencia: No se afectaron filas al actualizar la actividad');
+          }
+        } catch (e) {
+          print(' SYNC Error actualizando actividad local: $e');
+        }
+
+        return true;
+      } else {
+        print(' SYNC Error del servidor: ${response.statusCode}');
+        print(' SYNC Respuesta: ${response.data}');
+        return false;
+      }
+    } on DioException catch (e) {
+      print(' SYNC Error de Dio: ${e.type}');
+      print(' SYNC Mensaje: ${e.message}');
+
+      if (e.response != null) {
+        print(' SYNC Status: ${e.response?.statusCode}');
+        print(' SYNC Datos: ${e.response?.data}');
+      }
+      return false;
+    } catch (e) {
+      print(' SYNC Error inesperado: $e');
+      return false;
+    }
+  }
+
+  Future<void> syncPendingInspections() async {
+    try {
+      print(' SYNC Buscando inspecciones pendientes...');
+      final pending = await localDB.getPendingInspections();
+      print(' SYNC Encontradas ${pending.length} inspecciones pendientes');
+
+      for (var inspection in pending) {
+        final localId = inspection['local_id'] as String;
+        print(' SYNC Sincronizando inspección: $localId');
+        final success = await syncInspection(localId);
+
+        if (success) {
+          print(' SYNC Inspección $localId sincronizada con éxito');
+        } else {
+          print(' SYNC Falló sincronización de $localId');
+        }
+      }
+    } catch (e) {
+      print(' SYNC Error en syncPendingInspections: $e');
+    }
+  }
+
+  static void registerBackgroundSync() {
+    Workmanager().registerPeriodicTask(
+      "syncInspections",
+      "syncInspectionsTask",
+      frequency: const Duration(minutes: 15),
+      constraints: Constraints(
+        networkType: NetworkType.connected,
+      ),
+    );
+  }
+
+  @pragma('vm:entry-point')
+  static void callbackDispatcher() {
+    Workmanager().executeTask((task, inputData) async {
+      WidgetsFlutterBinding.ensureInitialized();
+
+      if (task == "syncInspectionsTask") {
+        print(' BACKGROUND Iniciando sincronización en background...');
+        final service = SyncService();
+        await service.syncPendingInspections();
+        print(' BACKGROUND Sincronización completada');
+        return true;
+      }
+      return false;
+    });
+  }
+}
+ */
+
+import 'dart:io';
+import 'package:connectivity_plus/connectivity_plus.dart';
+import 'package:dio/dio.dart';
+import 'package:flutter/widgets.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:provider/provider.dart';
+import 'package:systemjvj/core/utils/urlBase.dart';
+import 'package:systemjvj/schedule/providers/schedule_provider.dart';
+import 'package:systemjvj/schedule/repository/databaseHelper.dart';
+import 'package:workmanager/workmanager.dart';
+import 'local_db.dart';
+
+class SyncService {
+  static const int STATUS_DRAFT = 0;
+  static const int STATUS_PENDING = 1;
+  static const int STATUS_CONCLUDED = 2;
+  static const int STATUS_SYNCED = 3;
+
+  final Dio dio = Dio();
+  final LocalDB localDB = LocalDB();
+  final FlutterSecureStorage storage = const FlutterSecureStorage();
+  String baseUrl = BASE_URL;
+
+  Future<bool> checkConnectivity() async {
+    var connectivityResult = await Connectivity().checkConnectivity();
+    return connectivityResult != ConnectivityResult.none;
+  }
+
+  Future<bool> syncInspection(String localId) async {
+    try {
+      // 1. Obtener token de autenticación
+      final token = await storage.read(key: 'access_token');
+      if (token == null) {
+        print(' SYNC Token de autenticación no encontrado');
+        return false;
+      }
+
+      // 2. Obtener datos de inspección local
+      final inspection = await localDB.getInspection(localId);
+      if (inspection == null || inspection['status'] != STATUS_CONCLUDED) {
+        print(' SYNC Inspección no encontrada o no está concluida');
+        return false;
+      }
+
+      // 3. Obtener checks, fotos y recomendaciones
+      final checks = await localDB.getChecksForInspection(localId);
+      final photos = await localDB.getPhotosForInspection(localId);
+      final recommendations =
+          await localDB.getRecommendationsForInspection(localId); // NUEVO
+
+      print(' SYNC Datos inspección: ${inspection['inspection_id']}');
+      print(' SYNC Checks: ${checks.length}');
+      print(' SYNC Fotos: ${photos.length}');
+      print(' SYNC Recomendaciones: ${recommendations.length}'); // NUEVO
+
+      // 4. Preparar lista de fotos generales, checks y recomendaciones
+      final List<Map<String, dynamic>> modifiedChecks = [];
+      final List<Map<String, dynamic>> generalPhotosData = [];
+      final List<Map<String, dynamic>> modifiedRecommendations = []; // NUEVO
+      final List<File> filesToUpload = [];
+
+      // Procesar checks
+      for (var check in checks) {
+        final Map<String, dynamic> currentCheck = Map.from(check);
+        if (currentCheck['image_path'] != null) {
+          final path = currentCheck['image_path'] as String;
+          final file = File(path);
+          if (await file.exists()) {
+            final fileName = path.split('/').last;
+            currentCheck['image_path'] = fileName;
+            filesToUpload.add(file);
+          } else {
+            print(' SYNC Archivo de check no encontrado: $path');
+            currentCheck['image_path'] = null;
+          }
+        }
+        modifiedChecks.add(currentCheck);
+      }
+
+      // Procesar fotos generales
+      for (var photo in photos) {
+        final path = photo['image_path'] as String;
+        final file = File(path);
+        if (await file.exists()) {
+          final fileName = path.split('/').last;
+          generalPhotosData.add({
+            'file_name': fileName,
+            'type': photo['type'],
+            'description': photo['description'],
+          });
+          filesToUpload.add(file);
+        } else {
+          print(' SYNC Archivo de foto general no encontrado: $path');
+        }
+      }
+
+      // NUEVO: Procesar recomendaciones
+      for (var rec in recommendations) {
+        final Map<String, dynamic> currentRec = Map.from(rec);
+        if (currentRec['image_path'] != null) {
+          final path = currentRec['image_path'] as String;
+          final file = File(path);
+          if (await file.exists()) {
+            final fileName = path.split('/').last;
+            currentRec['image_path'] = fileName;
+            filesToUpload.add(file);
+          } else {
+            print(' SYNC Archivo de recomendación no encontrado: $path');
+            currentRec['image_path'] = null;
+          }
+        }
+        modifiedRecommendations.add(currentRec);
+      }
+
+      print(' SYNC Total archivos adjuntos: ${filesToUpload.length}');
+
+      // 5. Construir FormData
+      final formData = FormData();
+
+      // Añadir datos básicos de la inspección
+      formData.fields.add(
+          MapEntry('inspectionId', inspection['inspection_id'].toString()));
+      formData.fields.add(
+          MapEntry('transportUnit', inspection['transport_unit'].toString()));
+      formData.fields.add(MapEntry(
+          'maintenanceType', inspection['maintenance_type'].toString()));
+      formData.fields
+          .add(MapEntry('horometer', inspection['horometer'].toString()));
+      formData.fields.add(MapEntry(
+          'serviceToPerform', inspection['service_to_perform'].toString()));
+      formData.fields.add(MapEntry('inspectionConcluded', 'true'));
+
+      // Añadir 'checks' como un array de objetos
+      for (int i = 0; i < modifiedChecks.length; i++) {
+        formData.fields.add(MapEntry('checks[$i][maintenance_checks_id]',
+            modifiedChecks[i]['maintenance_checks_id'].toString()));
+        formData.fields.add(MapEntry(
+            'checks[$i][status]', modifiedChecks[i]['status'].toString()));
+        if (modifiedChecks[i]['comment'] != null) {
+          formData.fields.add(MapEntry(
+              'checks[$i][comment]', modifiedChecks[i]['comment'].toString()));
+        }
+        if (modifiedChecks[i]['image_path'] != null) {
+          formData.fields.add(MapEntry('checks[$i][image_path]',
+              modifiedChecks[i]['image_path'].toString()));
+        }
+      }
+
+      // Añadir 'general_photos' como un array de objetos
+      for (int i = 0; i < generalPhotosData.length; i++) {
+        formData.fields.add(MapEntry('general_photos[$i][file_name]',
+            generalPhotosData[i]['file_name'].toString()));
+        formData.fields.add(MapEntry('general_photos[$i][type]',
+            generalPhotosData[i]['type'].toString()));
+        if (generalPhotosData[i]['description'] != null) {
+          formData.fields.add(MapEntry('general_photos[$i][description]',
+              generalPhotosData[i]['description'].toString()));
+        }
+      }
+
+      // NUEVO: Añadir 'recommendations' como un array de objetos
+      for (int i = 0; i < modifiedRecommendations.length; i++) {
+        formData.fields.add(MapEntry('recommendations[$i][description]',
+            modifiedRecommendations[i]['description'].toString()));
+        if (modifiedRecommendations[i]['image_path'] != null) {
+          formData.fields.add(MapEntry('recommendations[$i][image_path]',
+              modifiedRecommendations[i]['image_path'].toString()));
+        }
+      }
+
+      // Añadir los archivos físicos
+      for (var file in filesToUpload) {
+        final fileName = file.path.split('/').last;
+        formData.files.add(MapEntry(
+          'photo_files[]',
+          await MultipartFile.fromFile(file.path, filename: fileName),
+        ));
+      }
+
+      // 6. Enviar solicitud al backend
+      final response = await dio.post(
+        '$baseUrl/api/inspections/save-full',
+        data: formData,
+        options: Options(
+          headers: {
+            'Authorization': 'Bearer $token',
+            'Accept': 'application/json',
+          },
+          sendTimeout: const Duration(seconds: 60),
+        ),
+      );
+
+      // 7. Procesar respuesta
+      if (response.statusCode == 200) {
+        print(' SYNC Sincronización exitosa!');
+        await localDB.updateInspectionStatus(localId, STATUS_SYNCED);
+
+        // Actualizar la actividad relacionada con mejor logging
+        try {
+          final dbHelper = DatabaseHelper.instance;
+          final inspectionId = inspection['inspection_id'];
+          final transportUnitValue = inspection['transport_unit'].toString();
+
+          print(
+              ' SYNC Actualizando actividad: inspectionId=$inspectionId, concluded=true, transportUnit=$transportUnitValue');
+
+          final result = await dbHelper.updateActivityInspectionStatus(
+            inspectionId,
+            true,
+            transportUnitValue,
+          );
+
+          print(' SYNC Resultado de actualización: $result filas afectadas');
+
+          if (result > 0) {
+            print(' SYNC Actividad actualizada exitosamente');
+          } else {
+            print(
+                ' SYNC Advertencia: No se afectaron filas al actualizar la actividad');
+          }
+        } catch (e) {
+          print(' SYNC Error actualizando actividad local: $e');
+        }
+
+        return true;
+      } else {
+        print(' SYNC Error del servidor: ${response.statusCode}');
+        print(' SYNC Respuesta: ${response.data}');
+        return false;
+      }
+    } on DioException catch (e) {
+      print(' SYNC Error de Dio: ${e.type}');
+      print(' SYNC Mensaje: ${e.message}');
+
+      if (e.response != null) {
+        print(' SYNC Status: ${e.response?.statusCode}');
+        print(' SYNC Datos: ${e.response?.data}');
+      }
+      return false;
+    } catch (e) {
+      print(' SYNC Error inesperado: $e');
+      return false;
+    }
+  }
+
+  Future<void> syncPendingInspections() async {
+    try {
+      print(' SYNC Buscando inspecciones pendientes...');
+      final pending = await localDB.getPendingInspections();
+      print(' SYNC Encontradas ${pending.length} inspecciones pendientes');
+
+      for (var inspection in pending) {
+        final localId = inspection['local_id'] as String;
+        print(' SYNC Sincronizando inspección: $localId');
+        final success = await syncInspection(localId);
+
+        if (success) {
+          print(' SYNC Inspección $localId sincronizada con éxito');
+        } else {
+          print(' SYNC Falló sincronización de $localId');
+        }
+      }
+    } catch (e) {
+      print(' SYNC Error en syncPendingInspections: $e');
+    }
+  }
+
+  static void registerBackgroundSync() {
+    Workmanager().registerPeriodicTask(
+      "syncInspections",
+      "syncInspectionsTask",
+      frequency: const Duration(minutes: 15),
+      constraints: Constraints(
+        networkType: NetworkType.connected,
+      ),
+    );
+  }
+
+  @pragma('vm:entry-point')
+  static void callbackDispatcher() {
+    Workmanager().executeTask((task, inputData) async {
+      WidgetsFlutterBinding.ensureInitialized();
+
+      if (task == "syncInspectionsTask") {
+        print(' BACKGROUND Iniciando sincronización en background...');
+        final service = SyncService();
+        await service.syncPendingInspections();
+        print(' BACKGROUND Sincronización completada');
+        return true;
+      }
+      return false;
+    });
+  }
+}
