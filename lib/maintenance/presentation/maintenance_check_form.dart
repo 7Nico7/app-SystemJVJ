@@ -4338,7 +4338,7 @@ class _MaintenanceCheckFormState extends State<MaintenanceCheckForm> {
     if (context != null) {
       Scrollable.ensureVisible(
         context,
-        duration: const Duration(milliseconds: 500),
+        duration: const Duration(milliseconds: 400),
         curve: Curves.easeInOut,
       );
     }

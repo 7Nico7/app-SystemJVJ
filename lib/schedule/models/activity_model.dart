@@ -32,6 +32,8 @@ class Activity {
   final bool inspectionConcluded; // Nuevo campo
   final int? serviceRating;
   final int? technicalSignature;
+  final String? mileage;
+  final String? comment;
   Activity({
     required this.id,
     required this.maintenanceId,
@@ -63,6 +65,8 @@ class Activity {
     this.inspectionConcluded = false, // Valor por defecto
     this.serviceRating, // Firmo el cliente = 1, si es null no ha firmado
     this.technicalSignature,
+    this.mileage,
+    this.comment,
   });
 
   factory Activity.fromJson(Map<String, dynamic> json) {
@@ -114,6 +118,8 @@ class Activity {
       inspectionConcluded: json['inspection_concluded'] ?? false, // Nuevo campo
       serviceRating: json['service_rating'],
       technicalSignature: json['technical_signature'],
+      mileage: json['mileage'],
+      comment: json['comment'],
     );
   }
 
@@ -140,37 +146,40 @@ class Activity {
     return TimeOfDay(hour: hour, minute: minute);
   }
 
-  Activity copyWith(
-      {String? id,
-      int? maintenanceId,
-      String? name,
-      String? title,
-      DateTime? start,
-      DateTime? end,
-      String? description,
-      String? location,
-      String? client,
-      String? technical,
-      String? equipment,
-      int? status,
-      String? folio,
-      String? maintenanceIdPdf,
-      String? technicalId,
-      int? maintenanceStatus,
-      int? serviceScope,
-      int? inspectionId,
-      String? transportUnit,
-      String? hourStart,
-      String? hourEnd,
-      String? hourIn,
-      String? hourBaseIn,
-      String? hourBaseOut,
-      bool? isSynced,
-      int? localStatus,
-      Map<String, String>? pendingTimes,
-      bool? inspectionConcluded, // Nuevo campo
-      int? serviceRating,
-      int? technicalSignature}) {
+  Activity copyWith({
+    String? id,
+    int? maintenanceId,
+    String? name,
+    String? title,
+    DateTime? start,
+    DateTime? end,
+    String? description,
+    String? location,
+    String? client,
+    String? technical,
+    String? equipment,
+    int? status,
+    String? folio,
+    String? maintenanceIdPdf,
+    String? technicalId,
+    int? maintenanceStatus,
+    int? serviceScope,
+    int? inspectionId,
+    String? transportUnit,
+    String? hourStart,
+    String? hourEnd,
+    String? hourIn,
+    String? hourBaseIn,
+    String? hourBaseOut,
+    bool? isSynced,
+    int? localStatus,
+    Map<String, String>? pendingTimes,
+    bool? inspectionConcluded, // Nuevo campo
+    int? serviceRating,
+    int? technicalSignature,
+    String? mileage,
+    String? comment,
+  }) {
     return Activity(
         id: id ?? this.id,
         maintenanceId: maintenanceId ?? this.maintenanceId,
@@ -199,10 +208,11 @@ class Activity {
         isSynced: isSynced ?? this.isSynced,
         localStatus: localStatus ?? this.localStatus,
         pendingTimes: pendingTimes ?? this.pendingTimes,
-        inspectionConcluded:
-            inspectionConcluded ?? this.inspectionConcluded, // Nuevo campo
+        inspectionConcluded: inspectionConcluded ?? this.inspectionConcluded,
         serviceRating: serviceRating ?? this.serviceRating,
-        technicalSignature: technicalSignature ?? this.technicalSignature);
+        technicalSignature: technicalSignature ?? this.technicalSignature,
+        mileage: mileage ?? this.mileage,
+        comment: comment ?? this.comment);
   }
 
   Map<String, dynamic> toMap() {
@@ -236,7 +246,9 @@ class Activity {
       'inspection_concluded': inspectionConcluded ? 1 : 0,
       'transportUnit': transportUnit,
       'serviceRating': serviceRating,
-      'technicalSignature': technicalSignature
+      'technicalSignature': technicalSignature,
+      'mileage': mileage,
+      'comment': comment,
     };
   }
 
@@ -273,6 +285,8 @@ class Activity {
         inspectionConcluded: map['inspection_concluded'] == 1,
         transportUnit: map['transportUnit'],
         serviceRating: map['serviceRating'],
-        technicalSignature: map['technicalSignature']);
+        technicalSignature: map['technicalSignature'],
+        mileage: map['mileage'],
+        comment: map['comment']);
   }
 }

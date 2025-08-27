@@ -59,7 +59,9 @@ class DatabaseHelper {
         local_status INTEGER DEFAULT 0,
         pending_times TEXT,
         serviceRating INTEGER,
-        technicalSignature INTEGER
+        technicalSignature INTEGER,
+        mileage TEXT,
+        comment TEXT
       )
     ''');
 

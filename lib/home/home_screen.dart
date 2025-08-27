@@ -31,7 +31,7 @@ class _HomeScreenState extends State<HomeScreen> {
     final List<Widget> _screens = [
       ScheduleScreen(),
       const SearchScreen(),
-      const ProfileScreen(),
+      const ServicioScreen(),
     ];
 
     return Scaffold(
@@ -50,12 +50,16 @@ class _HomeScreenState extends State<HomeScreen> {
           ) */
         ],
       ),
+// En tu HomeScreen
       drawer: SideMenu(
-        // Pasa los datos del usuario autenticado
         userName: currentUser?.username ?? 'Usuario',
-        userEmail:
-            '', // currentUser?.email ?? 'email@ejemplo.com', // Agrega email en tu User model
+        userEmail: '', //currentUser?.email ?? 'email@ejemplo.com',
         avatarPath: 'assets/avatar.png',
+        onNavigationItemSelected: (index) {
+          setState(() {
+            _currentIndex = index;
+          });
+        },
       ),
       body: _screens[_currentIndex],
       bottomNavigationBar: _buildBottomNavigationBar(),
@@ -96,11 +100,25 @@ class SearchScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return const Center(
-      child: Text('Pantalla de Búsqueda', style: TextStyle(fontSize: 24)),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(
+            Icons.build, // O puedes usar Icons.settings
+            size: 80, // Ajusta el tamaño del ícono
+            color: Colors.blue, // Ajusta el color del ícono
+          ),
+          SizedBox(height: 16), // Espacio entre el ícono y el texto
+          Text(
+            'Modulo de Factura en desarrollo',
+            style: TextStyle(fontSize: 18),
+          ),
+        ],
+      ),
     );
   }
 }
-
+/* 
 class ProfileScreen extends StatelessWidget {
   const ProfileScreen({super.key});
 
@@ -118,6 +136,31 @@ class ProfileScreen extends StatelessWidget {
           const SizedBox(height: 20),
           Text('Rol: ${currentUser?.role ?? "Sin rol"}',
               style: const TextStyle(fontSize: 18)),
+        ],
+      ),
+    );
+  }
+} */
+
+class ServicioScreen extends StatelessWidget {
+  const ServicioScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return const Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(
+            Icons.build, // O puedes usar Icons.settings
+            size: 80, // Ajusta el tamaño del ícono
+            color: Colors.blue, // Ajusta el color del ícono
+          ),
+          SizedBox(height: 16), // Espacio entre el ícono y el texto
+          Text(
+            'Modulo de Servicios en desarrollo',
+            style: TextStyle(fontSize: 18),
+          ),
         ],
       ),
     );

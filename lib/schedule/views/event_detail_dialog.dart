@@ -423,6 +423,7 @@ class _EventDetailDialogState extends State<EventDetailDialog> {
 }
  */
 
+import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:systemjvj/maintenance/data/signatureDatabaseHelper.dart';
@@ -433,6 +434,7 @@ import 'package:systemjvj/maintenance/presentation/maintenance_check_form2.dart'
 import 'package:systemjvj/schedule/models/activity_model.dart';
 import 'package:systemjvj/schedule/providers/schedule_provider.dart';
 import 'package:systemjvj/schedule/services/offlineService.dart';
+import 'package:systemjvj/schedule/services/syncService.dart';
 
 class EventDetailDialog extends StatefulWidget {
   final Activity activity;
@@ -478,6 +480,74 @@ class _EventDetailDialogState extends State<EventDetailDialog> {
   void dispose() {
     widget.provider.removeListener(_updateActivity);
     super.dispose();
+  }
+
+  Future<bool> _hasPendingExternalActivity(BuildContext context) async {
+    final offlineService = Provider.of<OfflineService>(context, listen: false);
+    final provider = Provider.of<ScheduleProvider>(context, listen: false);
+
+    // Combinar todas las actividades
+    List<Activity> allActivities = [...provider.activities];
+    for (final offlineActivity in offlineService.activities) {
+      if (!allActivities.any((a) => a.id == offlineActivity.id)) {
+        allActivities.add(offlineActivity);
+      }
+    }
+
+    // Filtrar actividades del mismo técnico
+    final technicianActivities = allActivities
+        .where((a) => a.technical == _currentActivity.technical)
+        .toList();
+
+    for (final activity in technicianActivities) {
+      // Saltar la actividad actual
+      if (activity.id == _currentActivity.id) continue;
+
+      final effectiveStatus = activity.localStatus > 0
+          ? activity.localStatus
+          : activity.maintenanceStatus;
+
+      // Verificar si es una actividad externa pendiente
+      if (activity.serviceScope == 2 && // Externa
+          effectiveStatus >= 3 && // Estado 3 (en camino) o superior
+          activity.hourBaseIn == null && // No ha regresado a base
+          activity.technicalSignature == null) {
+        // No ha firmado
+
+        // Verificar si tiene registro local pendiente de base_in
+        final hasPendingBaseIn =
+            activity.pendingTimes.containsKey('hourBaseIn');
+        if (!hasPendingBaseIn) {
+          return true;
+        }
+      }
+    }
+
+    return false;
+  }
+
+  Widget _buildActionButtonWithValidation(
+      BuildContext context, String text, String operationType) {
+    return TextButton(
+      onPressed: () async {
+        // Validar para actividades de salida de base o inicio de trabajo interno
+        if (operationType == 'base_out' ||
+            (operationType == 'start' && _currentActivity.serviceScope == 1)) {
+          final hasPending = await _hasPendingExternalActivity(context);
+          if (hasPending) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('No puede iniciar una nueva actividad. '
+                    'Tiene una actividad externa pendiente de regresar a base y firmar.'),
+              ),
+            );
+            return;
+          }
+        }
+        _registerFlowStep(context, operationType);
+      },
+      child: Text(text),
+    );
   }
 
   void _updateActivity() {
@@ -532,29 +602,27 @@ class _EventDetailDialogState extends State<EventDetailDialog> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            _buildDetailRow(
-                'Folio:', '${activity.title} es: ${activity.inspectionId}'),
-            _buildDetailRow('Descripción:', activity.description),
-            _buildDetailRow('Fecha:', '${_formatDate(activity.start)}'),
-            _buildDetailRow('Hora:',
+            _buildDetailRow('FOLIO:', '${activity.title}'),
+            _buildDetailRow('DESCRIPCIÓN:', activity.description),
+            _buildDetailRow('FECHA:', '${_formatDate(activity.start)}'),
+            _buildDetailRow('HORA:',
                 '${_formatTime(activity.start)} - ${_formatTime(activity.end)}'),
-            _buildDetailRow('Ubicación:', activity.location),
-            _buildDetailRow('Cliente:', activity.client),
-            _buildDetailRow('Técnico:', activity.technical),
-            _buildDetailRow('Equipo:', activity.equipment),
+            _buildDetailRow('UBICACIÓN:', activity.location),
+            _buildDetailRow('CLIENTE:', activity.client),
+            _buildDetailRow('TÉCNICO:', activity.technical),
+            _buildDetailRow('EQUIPO:', activity.equipment),
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('Estado ${effectiveStatus}: ',
-                    style: TextStyle(fontWeight: FontWeight.bold)),
+                Text('ESTADO:', style: TextStyle(fontWeight: FontWeight.bold)),
                 SizedBox(width: 4),
                 _buildStatusBadge(effectiveStatus),
                 if (!activity.isSynced) ...[
-                  SizedBox(width: 8),
-                  Icon(Icons.cloud_off, size: 16, color: Colors.orange),
                   SizedBox(width: 4),
-                  Text('Pendiente sincronizar',
-                      style: TextStyle(color: Colors.orange, fontSize: 12)),
+                  Icon(Icons.cloud_off, size: 16, color: Colors.orange),
+                  SizedBox(width: 3),
+                  Text('Pendiente',
+                      style: TextStyle(color: Colors.orange, fontSize: 10)),
                 ]
               ],
             ),
@@ -600,27 +668,30 @@ class _EventDetailDialogState extends State<EventDetailDialog> {
   ) {
     return [
       if (isExternalService && effectiveStatus == 2)
-        _buildActionButton(context, 'SALIDA DE BASE', 'base_out'),
+        // _buildActionButton(context, 'SALIDA DE BASE', 'base_out'),
+        _buildActionButtonWithValidation(context, 'SALIDA DE BASE', 'base_out'),
       if (isExternalService &&
           effectiveStatus == 3 &&
           !activity.pendingTimes.containsKey('hourIn'))
         _buildActionButton(context, 'LLEGÓ AL ÁREA', 'arrival'),
       if (effectiveStatus == 3 && activity.pendingTimes.containsKey('hourIn'))
-        _buildActionButton(context, 'INICIAR TRABAJO', 'start'),
+        //  _buildActionButton(context, 'INICIAR TRABAJO', 'start'),
+        _buildActionButtonWithValidation(context, 'INICIAR TRABAJO', 'start'),
       if ((!activity.pendingTimes.containsKey('hourIn') &&
               !isExternalService) &&
           (effectiveStatus == 2))
-        _buildActionButton(context, 'INICIAR TRABAJO', 'start'),
-      if (effectiveStatus == 4)
+        //  _buildActionButton(context, 'INICIAR TRABAJO', 'start'),
+        _buildActionButtonWithValidation(context, 'INICIAR TRABAJO', 'start'),
+      if (effectiveStatus == 4 && hasTransportUnit == true)
         _buildActionButton(context, 'FINALIZAR TRABAJO', 'end'),
-      if (isInspectionConcluded == false &&
+/*       if (isInspectionConcluded == false &&
           (activity.transportUnit?.isEmpty ?? true) &&
           (!hasPendingBaseIn && !hasSyncedBaseIn) &&
           (effectiveStatus == 4 || effectiveStatus == 5))
         TextButton(
           onPressed: () => _navigateToInspection(context, activity),
           child: Text('Inspeccionar equipo'),
-        ),
+        ), */
       if (isInspectionConcluded == false &&
           (activity.transportUnit?.isEmpty ?? true) &&
           (!hasPendingBaseIn && !hasSyncedBaseIn) &&
@@ -629,14 +700,14 @@ class _EventDetailDialogState extends State<EventDetailDialog> {
           onPressed: () => _navigateToInspection1(context, activity),
           child: Text('Inspeccionar equipo'),
         ),
-      if (isInspectionConcluded == false &&
+/*       if (isInspectionConcluded == false &&
           (activity.transportUnit?.isEmpty ?? true) &&
           (!hasPendingBaseIn && !hasSyncedBaseIn) &&
           (effectiveStatus == 4 || effectiveStatus == 5))
         TextButton(
           onPressed: () => _navigateToInspection2(context, activity),
           child: Text('Inspeccionar equipo'),
-        ),
+        ), */
       if (!hasSigned && (isInspectionConcluded || hasTransportUnit))
         TextButton(
           onPressed: () => _navigateToSignature(context, activity),
@@ -652,8 +723,7 @@ class _EventDetailDialogState extends State<EventDetailDialog> {
         _buildActionButton(context, 'FIRMA DEL TECNICO', 'technicalSignature'),
       TextButton(
         onPressed: () => Navigator.pop(context),
-        child: Text(
-            'CERRAR ${technicalSignatureInLocal}, ${technicalSignatureInBackend}'),
+        child: Text('CERRAR'),
       ),
     ];
   }
@@ -836,5 +906,45 @@ class _EventDetailDialogState extends State<EventDetailDialog> {
 
   String _formatTime(DateTime time) {
     return '${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}';
+  }
+
+  Future<void> _handleSync() async {
+    final syncService = Provider.of<SyncService>(context, listen: false);
+    final connectivity = Provider.of<Connectivity>(context, listen: false);
+
+    setState(() {
+      _isProcessing = true;
+    });
+
+    try {
+      // Verificar conexión
+      final connectivityResult = await connectivity.checkConnectivity();
+      if (connectivityResult == ConnectivityResult.none) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('No hay conexión a internet')),
+        );
+        return;
+      }
+
+      // Intentar sincronización
+      await syncService.syncData();
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Datos sincronizados correctamente')),
+      );
+
+      // Actualizar la actividad después de la sincronización
+      await widget.provider.refreshActivities();
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error al sincronizar: $e')),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isProcessing = false;
+        });
+      }
+    }
   }
 }

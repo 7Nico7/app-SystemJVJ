@@ -36,3 +36,6 @@ Levanta el emulador
 
 Corre el proyecto dentro el emulador
 -flutter run -d emulator-5554
+
+
+flutter build apk --split-per-abi

@@ -37,12 +37,13 @@ import 'package:flutter/material.dart';
 
 class PhotoTypeDialog extends StatelessWidget {
   final List<String> types = [
-    'Antes de mantenimiento', //1
-    'Después de mantenimiento', //2
-    'Placa serie', //3
-    'Horometro', //4
-    'Falla especifica', //5
-    'Reparación' //6
+    'Evidencias', //1
+    'Antes de mantenimiento', //2
+    'Después de mantenimiento', //3
+    'Placa serie', //4
+    'Horometro', //5
+    'Falla especifica', //6
+    'Reparación' //7
   ];
 
   PhotoTypeDialog({Key? key}) : super(key: key);

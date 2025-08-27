@@ -36,6 +36,7 @@ class _ClientSignatureFormState extends State<ClientSignatureForm> {
   }
 
   Future<void> _loadStoredSignature() async {
+    if (!mounted) return; // Verificar si está montado
     setState(() => _isLoading = true);
     try {
       final db = await SignatureDatabaseHelper.instance.database;
@@ -47,6 +48,7 @@ class _ClientSignatureFormState extends State<ClientSignatureForm> {
       );
 
       if (results.isNotEmpty) {
+        if (!mounted) return; // Verificar nuevamente antes de setState
         setState(() {
           _storedData = results[0];
           _selectedRating = _storedData!['rating'] as int?;
@@ -62,7 +64,9 @@ class _ClientSignatureFormState extends State<ClientSignatureForm> {
     } catch (e) {
       print('Error loading signature: $e');
     } finally {
-      setState(() => _isLoading = false);
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
     }
   }
 
@@ -74,6 +78,7 @@ class _ClientSignatureFormState extends State<ClientSignatureForm> {
 
   Future<void> _saveSignature() async {
     if (_selectedRating == null) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Por favor seleccione una calificación')),
       );
@@ -81,6 +86,7 @@ class _ClientSignatureFormState extends State<ClientSignatureForm> {
     }
 
     if (_signatureController.isEmpty && _signatureImage == null) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Por favor capture o suba una firma')),
       );
@@ -92,15 +98,12 @@ class _ClientSignatureFormState extends State<ClientSignatureForm> {
     try {
       String? signatureBase64;
 
-      // Exportar firma dibujada
       if (_signatureController.isNotEmpty) {
         final signatureData = await _signatureController.toPngBytes();
         if (signatureData != null) {
           signatureBase64 = base64Encode(signatureData);
         }
-      }
-      // Usar imagen subida
-      else if (_signatureImage != null) {
+      } else if (_signatureImage != null) {
         signatureBase64 = base64Encode(_signatureImage!);
       }
 
@@ -108,45 +111,47 @@ class _ClientSignatureFormState extends State<ClientSignatureForm> {
         throw Exception('Error al procesar la firma');
       }
 
-      // Guardar en base de datos local
       final db = await SignatureDatabaseHelper.instance.database;
       await db.insert(
         'signatures',
         {
           'maintenanceId': widget.maintenanceId,
           'rating': _selectedRating,
-          'signature': signatureBase64, // Base64 simple
+          'signature': signatureBase64,
           'isSynced': 0,
           'createdAt': DateTime.now().toIso8601String(),
         },
         conflictAlgorithm: ConflictAlgorithm.replace,
       );
 
+      if (!mounted) return;
       setState(() => _isSaved = true);
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Firma guardada localmente')),
       );
 
-      // Intentar sincronizar inmediatamente
       _trySyncSignature();
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error: ${e.toString()}')),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: ${e.toString()}')),
+        );
+      }
     } finally {
-      setState(() => _isLoading = false);
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
     }
   }
 
-// En el método _trySyncSignature
   Future<void> _trySyncSignature() async {
     setState(() => _isLoading = true);
     try {
       final syncService = SignatureSyncService();
       final success = await syncService.syncPendingSignatures();
 
+      if (!mounted) return;
       if (success) {
-        // Verificar si esta firma específica se sincronizó
         final db = await SignatureDatabaseHelper.instance.database;
         final result = await db.query(
           'signatures',
@@ -169,11 +174,15 @@ class _ClientSignatureFormState extends State<ClientSignatureForm> {
         );
       }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error: ${e.toString()}')),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: ${e.toString()}')),
+        );
+      }
     } finally {
-      setState(() => _isLoading = false);
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
     }
   }
 

@@ -211,7 +211,7 @@ class _CalendarWidgetState extends State<CalendarWidget> {
     );
   }
 
-  Widget _buildListView(List<Activity> activities, ScheduleProvider provider) {
+/*   Widget _buildListView(List<Activity> activities, ScheduleProvider provider) {
     if (activities.isEmpty) {
       return Center(
         child: Text(
@@ -228,6 +228,59 @@ class _CalendarWidgetState extends State<CalendarWidget> {
         return _buildListActivityItem(activity, provider);
       },
     );
+  }
+ */
+
+  Widget _buildListView(List<Activity> activities, ScheduleProvider provider) {
+    if (activities.isEmpty) {
+      return Center(
+        child: Text(
+          'No hay actividades disponibles',
+          style: TextStyle(fontSize: 18, color: Colors.grey),
+        ),
+      );
+    }
+
+    // Ordenar actividades según el criterio especificado
+    List<Activity> sortedActivities = _sortActivitiesByStatus(activities);
+
+    return ListView.builder(
+      itemCount: sortedActivities.length,
+      itemBuilder: (context, index) {
+        final activity = sortedActivities[index];
+        return _buildListActivityItem(activity, provider);
+      },
+    );
+  }
+
+// Función para ordenar actividades por estado
+  List<Activity> _sortActivitiesByStatus(List<Activity> activities) {
+    // Primero: actividades en proceso (4) y en camino (3)
+    // Segundo: autorizadas (2)
+    // Tercero: pendientes (1)
+    // Cuarto: finalizadas (5)
+
+    return activities
+      ..sort((a, b) {
+        // Obtener el estado efectivo de cada actividad
+        final statusA = a.localStatus > 0 ? a.localStatus : a.maintenanceStatus;
+        final statusB = b.localStatus > 0 ? b.localStatus : b.maintenanceStatus;
+
+        // Definir el orden de prioridad
+        const priorityOrder = {4: 1, 3: 2, 2: 3, 1: 4, 5: 5};
+
+        // Obtener la prioridad de cada estado (valor más bajo = mayor prioridad)
+        final priorityA = priorityOrder[statusA] ?? 6;
+        final priorityB = priorityOrder[statusB] ?? 6;
+
+        // Comparar por prioridad
+        if (priorityA != priorityB) {
+          return priorityA.compareTo(priorityB);
+        }
+
+        // Si tienen la misma prioridad, ordenar por fecha de inicio (más reciente primero)
+        return b.start.compareTo(a.start);
+      });
   }
 
   Widget _buildEventWidget(Activity activity, ScheduleProvider provider) {
@@ -427,6 +480,574 @@ class _CalendarWidgetState extends State<CalendarWidget> {
       case 2:
         return Icons.verified;
       case 3:
+        return Icons.horizontal_distribute_rounded;
+      case 4:
+        return Icons.timer_outlined;
+      case 5:
+        return Icons.check_circle_outline;
+      default:
+        return Icons.verified_user_outlined;
+    }
+  }
+
+  Color _getStatusColor(int status) {
+    switch (status) {
+      case 1:
+        return Colors.blue;
+      case 2:
+        return Colors.orange;
+      case 3:
+        return Colors.orange;
+      case 4:
+        return Colors.deepPurple;
+      case 5:
+        return Colors.green;
+      default:
+        return Colors.grey;
+    }
+  }
+
+  String _formatDateTime(DateTime date) {
+    return '${date.day}/${date.month}/${date.year}';
+  }
+
+  String _formatTime(DateTime time) {
+    return '${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}';
+  }
+}
+
+class _CalendarDataSource extends CalendarDataSource {
+  _CalendarDataSource(List<Activity> activities) {
+    appointments = activities;
+  }
+
+  @override
+  DateTime getStartTime(int index) => appointments![index].start;
+
+  @override
+  DateTime getEndTime(int index) => appointments![index].end;
+
+  @override
+  String getSubject(int index) => appointments![index].title;
+
+  @override
+  Color getColor(int index) => Colors.transparent;
+}
+ 
+
+
+
+/* 
+import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import 'package:syncfusion_flutter_calendar/calendar.dart';
+import 'package:connectivity_plus/connectivity_plus.dart';
+import 'package:systemjvj/schedule/models/activity_model.dart';
+import 'package:systemjvj/schedule/providers/schedule_provider.dart';
+import 'package:systemjvj/schedule/services/offlineService.dart';
+import 'package:systemjvj/schedule/services/syncService.dart';
+
+import 'package:systemjvj/schedule/views/event_detail_dialog.dart';
+
+class CalendarWidget extends StatefulWidget {
+  @override
+  _CalendarWidgetState createState() => _CalendarWidgetState();
+}
+
+class _CalendarWidgetState extends State<CalendarWidget> {
+  bool _showWeekView = true;
+  bool _showCalendarView = false;
+  final CalendarController _calendarController = CalendarController();
+  bool _isSyncing = false;
+
+  @override
+  void initState() {
+    super.initState();
+    // Escuchar cambios de conectividad - CORREGIDO
+    Connectivity()
+        .onConnectivityChanged
+        .listen((List<ConnectivityResult> results) {
+      if (mounted) {
+        setState(() {});
+      }
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final provider = Provider.of<ScheduleProvider>(context);
+    final offlineService = Provider.of<OfflineService>(context);
+    final syncService = Provider.of<SyncService>(context);
+    final connectivityResults = Provider.of<List<ConnectivityResult>>(context);
+    final isConnected = !connectivityResults.contains(ConnectivityResult.none);
+
+    return Consumer<ScheduleProvider>(
+      builder: (context, provider, child) {
+        // Combinar actividades online y offline
+        List<Activity> activitiesToShow = provider.activities;
+        if (provider.isLoading && offlineService.activities.isNotEmpty) {
+          activitiesToShow = offlineService.activities;
+        } else if (!provider.isLoading) {
+          // Combinar manteniendo los cambios locales
+          activitiesToShow = [...provider.activities];
+          for (final offlineActivity in offlineService.activities) {
+            final index =
+                activitiesToShow.indexWhere((a) => a.id == offlineActivity.id);
+            if (index != -1) {
+              activitiesToShow[index] = offlineActivity;
+            } else {
+              activitiesToShow.add(offlineActivity);
+            }
+          }
+        }
+
+        // Agrupar actividades por técnico
+        final activitiesByTechnician =
+            _groupActivitiesByTechnician(activitiesToShow);
+        final technicianIds = activitiesByTechnician.keys.toList();
+
+        // Actividades a mostrar (filtradas si hay técnico seleccionado)
+        final filteredActivities = provider.selectedTechnicianId != null
+            ? activitiesByTechnician[provider.selectedTechnicianId] ?? []
+            : activitiesToShow;
+
+        return Scaffold(
+          appBar: AppBar(
+            title: Text('Calendario de Actividades'),
+            actions: [
+              // Botón de sincronización
+              _buildSyncButton(isConnected, syncService, provider),
+              // Selector de vista
+              IconButton(
+                icon: Icon(Icons.calendar_today),
+                onPressed: () => setState(() => _showCalendarView = true),
+              ),
+              IconButton(
+                icon: Icon(Icons.list),
+                onPressed: () => setState(() => _showCalendarView = false),
+              ),
+            ],
+          ),
+          body: Column(
+            children: [
+              // Mostrar estado de conexión
+              if (!isConnected)
+                Container(
+                  padding: EdgeInsets.symmetric(vertical: 8),
+                  color: Colors.orange[100],
+                  child: Center(
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.wifi_off, size: 16, color: Colors.orange),
+                        SizedBox(width: 8),
+                        Text(
+                          "Modo offline - Usando datos locales",
+                          style: TextStyle(color: Colors.orange),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+
+              // Selector de técnico (solo para admins con múltiples técnicos)
+              if (provider.isAdmin && technicianIds.length > 1)
+                _buildTechnicianSelector(provider, technicianIds),
+
+              // Controles de vista de calendario
+              if (_showCalendarView) _buildCalendarViewControls(),
+
+              // Contenido principal
+              Expanded(
+                child: _showCalendarView
+                    ? _buildCalendarView(filteredActivities, provider)
+                    : _buildListView(filteredActivities, provider),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildSyncButton(
+      bool isConnected, SyncService syncService, ScheduleProvider provider) {
+    final offlineService = Provider.of<OfflineService>(context);
+    final hasPendingOperations =
+        offlineService.activities.any((activity) => !activity.isSynced);
+
+    return Stack(
+      children: [
+        IconButton(
+          icon: _isSyncing
+              ? CircularProgressIndicator(
+                  valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                  strokeWidth: 2,
+                )
+              : Icon(Icons.sync),
+          onPressed: () async {
+            if (!isConnected) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text('No hay conexión a internet')),
+              );
+              return;
+            }
+
+            if (_isSyncing) return;
+
+            setState(() {
+              _isSyncing = true;
+            });
+
+            try {
+              await syncService.syncData();
+              await provider.refreshActivities();
+
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text('Sincronización completada')),
+              );
+            } catch (e) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text('Error al sincronizar: $e')),
+              );
+            } finally {
+              if (mounted) {
+                setState(() {
+                  _isSyncing = false;
+                });
+              }
+            }
+          },
+        ),
+        if (hasPendingOperations && !_isSyncing)
+          Positioned(
+            right: 8,
+            top: 8,
+            child: Container(
+              padding: EdgeInsets.all(2),
+              decoration: BoxDecoration(
+                color: Colors.orange,
+                shape: BoxShape.circle,
+              ),
+              child: Text(
+                '!',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+
+  Widget _buildTechnicianSelector(
+      ScheduleProvider provider, List<String> technicianIds) {
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      padding: EdgeInsets.symmetric(vertical: 8),
+      child: Row(
+        children: [
+          ChoiceChip(
+            label: Text('Todos'),
+            selected: provider.selectedTechnicianId == null,
+            selectedColor: Theme.of(context).primaryColor.withOpacity(0.3),
+            onSelected: (_) => provider.setSelectedTechnician(null),
+          ),
+          ...technicianIds.map((techId) => Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 4),
+                child: ChoiceChip(
+                  label: Text(
+                    provider.getTechnicianName(techId) ?? 'Técnico $techId',
+                    style: TextStyle(fontSize: 12),
+                  ),
+                  selected: provider.selectedTechnicianId == techId,
+                  selectedColor:
+                      Theme.of(context).primaryColor.withOpacity(0.3),
+                  onSelected: (_) => provider.setSelectedTechnician(techId),
+                ),
+              )),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCalendarViewControls() {
+    return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.end,
+          children: [
+            // Selector de periodo (Semana/Día)
+            Row(
+              children: [
+                IconButton(
+                  icon: Icon(Icons.view_day, size: 20),
+                  color: !_showWeekView
+                      ? Theme.of(context).primaryColor
+                      : Colors.grey,
+                  onPressed: () {
+                    setState(() {
+                      _showWeekView = false;
+                      _calendarController.view = CalendarView.day;
+                      _calendarController.displayDate = DateTime.now();
+                    });
+                  },
+                ),
+                IconButton(
+                  icon: Icon(Icons.view_week, size: 20),
+                  color: _showWeekView
+                      ? Theme.of(context).primaryColor
+                      : Colors.grey,
+                  onPressed: () {
+                    setState(() {
+                      _showWeekView = true;
+                      _calendarController.view = CalendarView.week;
+                    });
+                  },
+                ),
+              ],
+            ),
+          ],
+        ));
+  }
+
+  Widget _buildCalendarView(
+      List<Activity> activities, ScheduleProvider provider) {
+    return SfCalendar(
+      controller: _calendarController,
+      view: _showWeekView ? CalendarView.week : CalendarView.day,
+      dataSource: _CalendarDataSource(activities),
+      timeSlotViewSettings: TimeSlotViewSettings(
+        startHour: 7,
+        endHour: 21,
+      ),
+      onTap: (CalendarTapDetails details) {
+        if (details.targetElement == CalendarElement.appointment) {
+          final activity = details.appointments!.first as Activity;
+          _showEventDetails(context, activity, provider);
+        }
+      },
+      appointmentBuilder: (context, details) {
+        final activity = details.appointments.first as Activity;
+        return _buildEventWidget(activity, provider);
+      },
+    );
+  }
+
+  Widget _buildListView(List<Activity> activities, ScheduleProvider provider) {
+    if (activities.isEmpty) {
+      return Center(
+        child: Text(
+          'No hay actividades disponibles',
+          style: TextStyle(fontSize: 18, color: Colors.grey),
+        ),
+      );
+    }
+
+    return ListView.builder(
+      itemCount: activities.length,
+      itemBuilder: (context, index) {
+        final activity = activities[index];
+        return _buildListActivityItem(activity, provider);
+      },
+    );
+  }
+
+  Widget _buildEventWidget(Activity activity, ScheduleProvider provider) {
+    final effectiveStatus = activity.localStatus > 0
+        ? activity.localStatus
+        : activity.maintenanceStatus;
+    final statusColor = _getStatusColor(effectiveStatus);
+    final isAdmin = provider.isAdmin;
+
+    final hasPendingChanges = !activity.isSynced;
+
+    // Calcular duración en minutos
+    final duration = activity.end.difference(activity.start).inMinutes;
+    final isVeryShortEvent = duration < 15;
+    final isShortEvent = duration < 30;
+
+    return Container(
+      decoration: BoxDecoration(
+        color: statusColor.withOpacity(0.15),
+        border: Border(left: BorderSide(color: statusColor, width: 3)),
+      ),
+      padding: EdgeInsets.all(isVeryShortEvent ? 0 : (isShortEvent ? 1 : 2)),
+      child: Stack(
+        children: [
+          Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (isVeryShortEvent) ...[
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(
+                      _getStatusIcon(effectiveStatus),
+                      size: 10,
+                      color: statusColor,
+                    ),
+                    SizedBox(width: 2),
+                    Text(
+                      '${_formatTime(activity.start)}',
+                      style: TextStyle(fontSize: 7, height: 1.0),
+                    ),
+                  ],
+                ),
+              ] else if (isShortEvent) ...[
+                Text(
+                  activity.folio,
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 8,
+                    color: statusColor,
+                    height: 1.0,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                Text(
+                  '${_formatTime(activity.start)}',
+                  style: TextStyle(fontSize: 7, height: 1.0),
+                ),
+              ] else ...[
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Icon(
+                      _getStatusIcon(effectiveStatus),
+                      size: 10,
+                      color: statusColor,
+                    ),
+                    SizedBox(width: 2),
+                    Expanded(
+                      child: Text(
+                        activity.folio,
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 9,
+                          color: statusColor,
+                          height: 1.0,
+                        ),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
+                ),
+                SizedBox(height: 1),
+                Text(
+                  '${_formatTime(activity.start)}',
+                  style: TextStyle(fontSize: 8, height: 1.0),
+                ),
+                if (isAdmin)
+                  SizedBox(
+                    height: 12,
+                    child: Text(
+                      activity.technical.split(' ').take(1).join(' '),
+                      style: TextStyle(
+                        fontSize: 7,
+                        fontWeight: FontWeight.w500,
+                        height: 1.0,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+              ],
+            ],
+          ),
+          if (hasPendingChanges)
+            Positioned(
+              top: 2,
+              right: 2,
+              child: Icon(Icons.cloud_off, size: 10, color: Colors.orange),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildListActivityItem(Activity activity, ScheduleProvider provider) {
+    final effectiveStatus = activity.localStatus > 0
+        ? activity.localStatus
+        : activity.maintenanceStatus;
+    final statusColor = _getStatusColor(effectiveStatus);
+    final firstChar = _getStatusIcon(effectiveStatus);
+    final hasPendingChanges = !activity.isSynced;
+
+    return ListTile(
+      leading: CircleAvatar(
+        backgroundColor: statusColor.withOpacity(0.2),
+        child: Icon(
+          firstChar,
+          color: statusColor,
+        ),
+      ),
+      title: Text(
+        activity.folio,
+        style: TextStyle(fontWeight: FontWeight.bold),
+      ),
+      subtitle: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            '${_formatDateTime(activity.start)} - ${_formatTime(activity.end)}',
+            style: TextStyle(fontSize: 12),
+          ),
+          Text(
+            activity.technical,
+            style: TextStyle(fontSize: 12),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ],
+      ),
+      trailing: hasPendingChanges
+          ? Icon(Icons.cloud_off, color: Colors.orange)
+          : Icon(Icons.chevron_right, color: Colors.grey),
+      onTap: () => _showEventDetails(context, activity, provider),
+    );
+  }
+
+  Map<String, List<Activity>> _groupActivitiesByTechnician(
+      List<Activity> activities) {
+    final map = <String, List<Activity>>{};
+    for (final activity in activities) {
+      final techId = activity.technical;
+      map.putIfAbsent(techId, () => []).add(activity);
+    }
+    return map;
+  }
+
+  void _showEventDetails(
+      BuildContext context, Activity activity, ScheduleProvider provider) {
+    final updatedActivity = provider.activities.firstWhere(
+      (a) => a.id == activity.id,
+      orElse: () => activity,
+    );
+
+    showDialog(
+      context: context,
+      builder: (context) => EventDetailDialog(
+        activity: updatedActivity,
+        provider: provider,
+      ),
+    );
+  }
+
+  IconData _getStatusIcon(int status) {
+    switch (status) {
+      case 1:
+        return Icons.access_time;
+      case 2:
+        return Icons.verified;
+      case 3:
         return Icons.route_outlined;
       case 4:
         return Icons.timer_outlined;
@@ -480,3 +1101,4 @@ class _CalendarDataSource extends CalendarDataSource {
   @override
   Color getColor(int index) => Colors.transparent;
 }
+ */

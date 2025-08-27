@@ -156,6 +156,8 @@ class OfflineService with ChangeNotifier {
 
     // Actualizar UI
     await loadActivities();
+// Notificar a los listeners sobre el cambio
+    notifyListeners();
   }
 
   Future<void> _addPendingOperation(

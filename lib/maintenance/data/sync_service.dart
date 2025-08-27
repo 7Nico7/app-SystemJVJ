@@ -390,6 +390,11 @@ class SyncService {
           MapEntry('inspectionId', inspection['inspection_id'].toString()));
       formData.fields.add(
           MapEntry('transportUnit', inspection['transport_unit'].toString()));
+      formData.fields
+          .add(MapEntry('mileage', inspection['mileage'].toString()));
+      formData.fields
+          .add(MapEntry('comment', inspection['comment'].toString()));
+
       formData.fields.add(MapEntry(
           'maintenanceType', inspection['maintenance_type'].toString()));
       formData.fields

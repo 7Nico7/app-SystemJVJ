@@ -239,6 +239,7 @@ class SyncService {
  */
 
 import 'dart:convert';
+import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:http/http.dart' as http;
 import 'package:flutter/foundation.dart';
 import 'package:systemjvj/core/utils/urlBase.dart';
@@ -265,7 +266,12 @@ class SyncService with ChangeNotifier {
       print('[SYNC] Usuario no autenticado, no se puede sincronizar');
       return;
     }
-
+    // Verificar conexión antes de intentar sincronizar
+    final connectivityResult = await Connectivity().checkConnectivity();
+    if (connectivityResult == ConnectivityResult.none) {
+      print('[SYNC] Sin conexión, no se puede sincronizar');
+      throw Exception('No hay conexión a internet');
+    }
     print('[SYNC] Iniciando sincronización...');
 
     try {
