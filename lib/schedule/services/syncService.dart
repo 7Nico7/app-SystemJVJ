@@ -1,42 +1,55 @@
-/* import 'dart:convert';
+/* 
+import 'dart:convert';
+import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:http/http.dart' as http;
+import 'package:flutter/foundation.dart';
 import 'package:systemjvj/core/utils/urlBase.dart';
 import 'package:systemjvj/features/auth/data/auth_service.dart';
 import 'package:systemjvj/schedule/models/activity_model.dart';
 import 'package:systemjvj/schedule/repository/databaseHelper.dart';
 import 'package:systemjvj/schedule/services/offlineService.dart';
 
-class SyncService {
-  final OfflineService offlineService;
+class SyncService with ChangeNotifier {
+  OfflineService? offlineService;
   final DatabaseHelper dbHelper;
   final AuthService authService;
   String _baseUrl = BASE_URL;
-
+  bool _isSyncing = false;
+  bool get isSyncing => _isSyncing;
   SyncService({
     required this.offlineService,
     required this.dbHelper,
     required this.authService,
   });
 
-  Future<void> syncData() async {
-    final user = authService.currentUser;
-    if (user == null) {
-      print('[SYNC] Usuario no autenticado, no se puede sincronizar');
-      return;
-    }
+  void updateOfflineService(OfflineService service) {
+    this.offlineService = service;
+  }
 
-    print('[SYNC] Iniciando sincronización...');
+  Future<void> syncData() async {
+    if (_isSyncing) return;
+
+    _isSyncing = true;
+    notifyListeners();
 
     try {
-      // 1. Sincronizar operaciones pendientes
-      await _syncPendingOperations(user.token);
+      final user = authService.currentUser;
+      if (user == null) return;
 
-      // 2. Sincronizar actividades con el servidor
+      final connectivityResult = await Connectivity().checkConnectivity();
+      if (connectivityResult == ConnectivityResult.none) {
+        return;
+      }
+
+      await _syncPendingOperations(user.token);
       await _syncActivities(user.token);
 
-      print('[SYNC] Sincronización completada con éxito');
+      // Notificar a los listeners que la sincronización ha terminado
+      notifyListeners();
     } catch (e) {
-      print('[SYNC] Error durante la sincronización: $e');
+      debugPrint('Error en syncData: $e');
+    } finally {
+      _isSyncing = false;
     }
   }
 
@@ -72,6 +85,7 @@ class SyncService {
     final activityId = operation['activityId'];
     final operationType = operation['operation'];
     final timeValue = operation['timeValue'];
+    final scheduleId = operation['scheduleId'];
 
     String endpoint;
     Map<String, dynamic> body = {
@@ -95,6 +109,7 @@ class SyncService {
       case 'end':
         endpoint = '$_baseUrl/api/schedule/register-end';
         body['hourEnd'] = timeValue;
+        body['id_schedule'] = scheduleId;
         break;
       case 'base_in':
         endpoint = '$_baseUrl/api/schedule/register-base-in';
@@ -159,6 +174,9 @@ class SyncService {
 
           await dbHelper.updateActivity(mergedActivity);
           print('[SYNC] Actividad local actualizada: $activityId');
+
+          // Notificar al offlineService sobre el cambio
+          await offlineService!.loadActivities();
         }
       }
     } catch (e) {
@@ -226,7 +244,7 @@ class SyncService {
         }
 
         // Recargar actividades offline
-        offlineService.loadActivities();
+        await offlineService!.loadActivities();
         print('[SYNC] ${onlineActivities.length} actividades sincronizadas');
       } else {
         print('[SYNC] Error al obtener actividades: ${response.statusCode}');
@@ -236,6 +254,8 @@ class SyncService {
     }
   }
 }
+
+
  */
 
 import 'dart:convert';
@@ -253,7 +273,8 @@ class SyncService with ChangeNotifier {
   final DatabaseHelper dbHelper;
   final AuthService authService;
   String _baseUrl = BASE_URL;
-
+  bool _isSyncing = false;
+  bool get isSyncing => _isSyncing;
   SyncService({
     required this.offlineService,
     required this.dbHelper,
@@ -261,33 +282,29 @@ class SyncService with ChangeNotifier {
   });
 
   Future<void> syncData() async {
-    final user = authService.currentUser;
-    if (user == null) {
-      print('[SYNC] Usuario no autenticado, no se puede sincronizar');
-      return;
-    }
-    // Verificar conexión antes de intentar sincronizar
-    final connectivityResult = await Connectivity().checkConnectivity();
-    if (connectivityResult == ConnectivityResult.none) {
-      print('[SYNC] Sin conexión, no se puede sincronizar');
-      throw Exception('No hay conexión a internet');
-    }
-    print('[SYNC] Iniciando sincronización...');
+    if (_isSyncing) return;
+
+    _isSyncing = true;
+    notifyListeners();
 
     try {
-      // 1. Sincronizar operaciones pendientes
-      await _syncPendingOperations(user.token);
+      final user = authService.currentUser;
+      if (user == null) return;
 
-      // 2. Sincronizar actividades con el servidor
+      final connectivityResult = await Connectivity().checkConnectivity();
+      if (connectivityResult == ConnectivityResult.none) {
+        return;
+      }
+
+      await _syncPendingOperations(user.token);
       await _syncActivities(user.token);
 
-      print('[SYNC] Sincronización completada con éxito');
-
-      // Notificar a todos los listeners que la sincronización ha terminado
+      // Notificar a los listeners que la sincronización ha terminado
       notifyListeners();
     } catch (e) {
-      print('[SYNC] Error durante la sincronización: $e');
-      rethrow;
+      debugPrint('Error en syncData: $e');
+    } finally {
+      _isSyncing = false;
     }
   }
 
@@ -323,6 +340,7 @@ class SyncService with ChangeNotifier {
     final activityId = operation['activityId'];
     final operationType = operation['operation'];
     final timeValue = operation['timeValue'];
+    final scheduleId = operation['scheduleId'];
 
     String endpoint;
     Map<String, dynamic> body = {
@@ -346,6 +364,7 @@ class SyncService with ChangeNotifier {
       case 'end':
         endpoint = '$_baseUrl/api/schedule/register-end';
         body['hourEnd'] = timeValue;
+        body['id_schedule'] = scheduleId;
         break;
       case 'base_in':
         endpoint = '$_baseUrl/api/schedule/register-base-in';

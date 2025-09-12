@@ -30,6 +30,7 @@ class DatabaseHelper {
   Future<void> _createDB(Database db, int version) async {
     await db.execute('''
       CREATE TABLE activities (
+        scheduleId TEXT,
         id TEXT PRIMARY KEY,
         name TEXT,
         title TEXT,
@@ -69,6 +70,7 @@ class DatabaseHelper {
       CREATE TABLE pending_operations (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         activityId TEXT,
+        scheduleId TEXT,
         operation TEXT,
         timeValue TEXT,
         timestamp DATETIME DEFAULT CURRENT_TIMESTAMP

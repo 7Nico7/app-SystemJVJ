@@ -1,7 +1,9 @@
 import 'dart:async';
 import 'dart:io';
+import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:intl/intl.dart';
 import 'package:path/path.dart' as path_lib;
 import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
@@ -9,23 +11,12 @@ import 'package:systemjvj/maintenance/data/local_db.dart';
 import 'package:systemjvj/maintenance/data/sync_service.dart';
 import 'package:systemjvj/maintenance/domain/check_item.dart';
 import 'package:systemjvj/maintenance/domain/photo_item.dart';
+import 'package:systemjvj/maintenance/domain/recommendation.dart';
 import 'package:systemjvj/maintenance/presentation/photo_type_dialog.dart';
 import 'package:systemjvj/schedule/providers/schedule_provider.dart';
 import 'package:systemjvj/schedule/repository/databaseHelper.dart';
+import 'package:systemjvj/schedule/services/location_services.dart';
 import 'package:uuid/uuid.dart';
-
-// Modelo para Recomendaciones
-class Recommendation {
-  String id;
-  String description;
-  String? imagePath;
-
-  Recommendation({
-    required this.id,
-    required this.description,
-    this.imagePath,
-  });
-}
 
 class MaintenanceCheckForm1 extends StatefulWidget {
   final int inspectionId;
@@ -127,6 +118,17 @@ class _MaintenanceCheckFormState extends State<MaintenanceCheckForm1>
     {"id": 37, "name": "MARTILLLO HIDRAULICO EN CONDICIONES OPERATIVAS"},
   ];
 
+  // Agregar esta lista al inicio de la clase
+  final List<String> _requiredPhotoTypes = [
+    'Evidencias',
+    'Antes de mantenimiento',
+    'Después de mantenimiento',
+    'Placa serie',
+    'Horómetro',
+    'Falla',
+    'Reparación'
+  ];
+
   @override
   void initState() {
     super.initState();
@@ -152,6 +154,15 @@ class _MaintenanceCheckFormState extends State<MaintenanceCheckForm1>
 
     // Listener para cambios en las pestañas
     _tabController.addListener(_handleTabSelection);
+
+    Connectivity()
+        .onConnectivityChanged
+        .listen((List<ConnectivityResult> results) {
+      // Tomamos el primer resultado de la lista
+      if (results.isNotEmpty && results.first != ConnectivityResult.none) {
+        _retryAddressLookups();
+      }
+    });
 
     _initializeApp();
   }
@@ -288,8 +299,28 @@ class _MaintenanceCheckFormState extends State<MaintenanceCheckForm1>
       );
     }
 
+    // Validar checks: si el status no es 1, debe tener comentario y foto
+    for (var checkItem in _checkItems) {
+      if (checkItem.status != 1) {
+        if (checkItem.comment == null || checkItem.comment!.isEmpty) {
+          isValid = false;
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+                content:
+                    Text('Comentario obligatorio para: ${checkItem.name}')),
+          );
+        }
+        if (checkItem.imagePath == null) {
+          isValid = false;
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Foto obligatoria para: ${checkItem.name}')),
+          );
+        }
+      }
+    }
+
     // Validar servicio a realizar
-    if (_maintenanceType == 'preventivo') {
+    if (_maintenanceType == 'correctivo') {
       if (_preventiveServiceController.text.isEmpty) {
         isValid = false;
         ScaffoldMessenger.of(context).showSnackBar(
@@ -376,7 +407,7 @@ class _MaintenanceCheckFormState extends State<MaintenanceCheckForm1>
     }
 
     // Validar servicio a realizar
-    if (_maintenanceType == 'preventivo') {
+    if (_maintenanceType == 'correctivo') {
       if (_preventiveServiceController.text.isEmpty) {
         isValid = false;
         ScaffoldMessenger.of(context).showSnackBar(
@@ -398,6 +429,35 @@ class _MaintenanceCheckFormState extends State<MaintenanceCheckForm1>
               content: Text('Especificación de servicio es obligatoria')),
         );
       }
+    }
+
+    for (var checkItem in _checkItems) {
+      if (checkItem.status != 1) {
+        if (checkItem.comment == null || checkItem.comment!.isEmpty) {
+          isValid = false;
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+                content:
+                    Text('Comentario obligatorio para: ${checkItem.name}')),
+          );
+        }
+        if (checkItem.imagePath == null) {
+          isValid = false;
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Foto obligatoria para: ${checkItem.name}')),
+          );
+        }
+      }
+    }
+
+    if (!_validateRequiredPhotos()) {
+      isValid = false;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Debe tomar al menos una foto de cada tipo requerido'),
+        ),
+      );
+      return;
     }
 
     if (!isValid) return;
@@ -467,10 +527,20 @@ class _MaintenanceCheckFormState extends State<MaintenanceCheckForm1>
     }
   }
 
+// Método para validar fotos requeridas
+  bool _validateRequiredPhotos() {
+    for (String type in _requiredPhotoTypes) {
+      if (!_photos.any((photo) => photo.type == type)) {
+        return false;
+      }
+    }
+    return true;
+  }
+
   Future<void> _saveInBackground(int status) async {
     try {
       String? serviceValue;
-      if (_maintenanceType == 'preventivo') {
+      if (_maintenanceType == 'correctivo') {
         serviceValue = _preventiveServiceController.text;
       } else {
         serviceValue = _selectedServiceValue == 'otros'
@@ -504,6 +574,9 @@ class _MaintenanceCheckFormState extends State<MaintenanceCheckForm1>
                 'status': item.status,
                 'comment': item.comment,
                 'image_path': item.imagePath,
+                'latitude': item.latitude?.toString(),
+                'longitude': item.longitude?.toString(),
+                'address': item.address,
               })
           .toList();
 
@@ -513,6 +586,9 @@ class _MaintenanceCheckFormState extends State<MaintenanceCheckForm1>
                 'type': photo.type,
                 'description': photo.description,
                 'image_path': photo.imagePath,
+                'latitude': photo.latitude?.toString(),
+                'longitude': photo.longitude?.toString(),
+                'address': photo.address,
               })
           .toList();
 
@@ -521,8 +597,12 @@ class _MaintenanceCheckFormState extends State<MaintenanceCheckForm1>
                 'inspection_local_id': _localInspectionId,
                 'description': recommendation.description,
                 'image_path': recommendation.imagePath,
+                'latitude': recommendation.latitude?.toString(),
+                'longitude': recommendation.longitude?.toString(),
+                'address': recommendation.address,
               })
           .toList();
+// En saveFullInspection
 
       await localDB.saveFullInspection(
         inspection: inspectionData,
@@ -583,10 +663,10 @@ class _MaintenanceCheckFormState extends State<MaintenanceCheckForm1>
 
       _transportUnitController.text =
           inspection['transport_unit']?.toString() ?? '';
-
       final serviceToPerform = inspection['service_to_perform'];
       if (serviceToPerform != null && serviceToPerform.isNotEmpty) {
-        if (inspection['maintenance_type'] == 'preventivo') {
+        if (inspection['maintenance_type'] == 'correctivo') {
+          // Cambiado de preventivo
           _preventiveServiceController.text = serviceToPerform;
         } else {
           final predefined = [
@@ -648,6 +728,10 @@ class _MaintenanceCheckFormState extends State<MaintenanceCheckForm1>
           status: savedCheck['status'] ?? 1,
           comment: savedCheck['comment'],
           imagePath: savedCheck['image_path'],
+          // Usar los valores ya convertidos
+          latitude: savedCheck['latitude'] as double?,
+          longitude: savedCheck['longitude'] as double?,
+          address: savedCheck['address'] as String?,
         ));
       }
 
@@ -659,6 +743,10 @@ class _MaintenanceCheckFormState extends State<MaintenanceCheckForm1>
             imagePath: path,
             type: photo['type'] as String,
             description: photo['description'] as String,
+            // Usar los valores ya convertidos
+            latitude: photo['latitude'] as double?,
+            longitude: photo['longitude'] as double?,
+            address: photo['address'] as String,
           ));
         }
       }
@@ -666,12 +754,15 @@ class _MaintenanceCheckFormState extends State<MaintenanceCheckForm1>
       final List<Recommendation> loadedRecommendations = [];
       for (var rec in recommendations) {
         final path = rec['image_path'] as String?;
-        // Si hay una ruta de imagen, verificar que el archivo existe
         if (path == null || await File(path).exists()) {
           loadedRecommendations.add(Recommendation(
             id: rec['id'] != null ? rec['id'].toString() : Uuid().v4(),
             description: rec['description'] as String,
             imagePath: path,
+            // Usar los valores ya convertidos
+            latitude: rec['latitude'] as double?,
+            longitude: rec['longitude'] as double?,
+            address: rec['address'] as String?,
           ));
         }
       }
@@ -696,7 +787,7 @@ class _MaintenanceCheckFormState extends State<MaintenanceCheckForm1>
             .map((item) => CheckItem(
                   id: item['id'],
                   name: item['name'],
-                  status: 1,
+                  status: 0, //Cambia el check a por defecto sin revisar
                 ))
             .toList();
 
@@ -718,96 +809,315 @@ class _MaintenanceCheckFormState extends State<MaintenanceCheckForm1>
     }
   }
 
+  bool _isTakingPhoto = false;
+  bool _isProcessingImage = false;
+
   void _addPhoto() async {
-    final pickedFile = await _picker.pickImage(source: ImageSource.camera);
-    if (pickedFile == null) return;
+    // Verificar si ya se está procesando una foto
+    if (_isTakingPhoto || _isProcessingImage) return;
 
-    final permanentPath = await _saveImagePermanently(pickedFile.path);
+    setState(() {
+      _isTakingPhoto = true;
+    });
 
-    final photoType = await showDialog<String>(
-      context: context,
-      builder: (context) => PhotoTypeDialog(),
-    );
+    try {
+      // Mostrar primero el diálogo de selección de tipo
+      final photoType = await showDialog<String>(
+        context: context,
+        builder: (context) => PhotoTypeDialog(
+          missingTypes: _getMissingPhotoTypes(),
+        ),
+      );
 
-    if (photoType == null) return;
+      if (photoType == null) {
+        setState(() => _isTakingPhoto = false);
+        return;
+      }
 
-    final descriptionController = TextEditingController();
-    final result = await showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text('Descripción para $photoType'),
-        content: TextField(
-          controller: descriptionController,
-          decoration: const InputDecoration(
-            labelText: 'Descripción obligatoria',
+      // Obtener ubicación
+      final locationData = await LocationService.getCurrentLocation();
+
+      // Mostrar indicador de procesamiento
+      setState(() {
+        _isProcessingImage = true;
+        _isTakingPhoto = false;
+      });
+
+      final pickedFile = await _picker.pickImage(
+        source: ImageSource.camera,
+        maxWidth: 1024, // Reducir resolución para mejorar rendimiento
+        maxHeight: 1024,
+        imageQuality: 85, // Calidad balanceada
+      );
+
+      if (pickedFile == null) {
+        setState(() => _isProcessingImage = false);
+        return;
+      }
+
+      final permanentPath = await _saveImagePermanently(pickedFile.path);
+
+      // Ocultar indicador de procesamiento antes del diálogo
+      setState(() => _isProcessingImage = false);
+
+      // Ahora pedir la descripción
+      final descriptionController = TextEditingController();
+      final result = await showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => WillPopScope(
+          onWillPop: () async => false,
+          child: AlertDialog(
+            title: Text('Descripción para $photoType'),
+            content: TextField(
+              controller: descriptionController,
+              decoration: const InputDecoration(
+                labelText: 'Descripción obligatoria',
+                border: OutlineInputBorder(),
+              ),
+              maxLines: 3,
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('Cancelar'),
+              ),
+              TextButton(
+                onPressed: () =>
+                    Navigator.pop(context, descriptionController.text),
+                child: const Text('Guardar'),
+              ),
+            ],
           ),
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancelar'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(context, descriptionController.text),
-            child: const Text('Guardar'),
-          ),
-        ],
-      ),
-    );
+      );
 
-    if (result != null && mounted) {
+      if (result != null && mounted) {
+        setState(() {
+          _photos.add(PhotoItem(
+            imagePath: permanentPath,
+            type: photoType,
+            description: result,
+            latitude: locationData['latitude'],
+            longitude: locationData['longitude'],
+            address: locationData['address'],
+            needsAddressLookup: locationData['needsAddressLookup'],
+          ));
+        });
+
+        // Intentar obtener la dirección si hay conexión
+        if (locationData['needsAddressLookup'] == true &&
+            locationData['latitude'] != null &&
+            locationData['longitude'] != null) {
+          _updatePhotoAddress(_photos.last, locationData['latitude'],
+              locationData['longitude']);
+        }
+      }
+    } catch (e) {
+      print('Error al tomar foto: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Error al procesar la imagen')),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isTakingPhoto = false;
+          _isProcessingImage = false;
+        });
+      }
+    }
+  }
+
+  // método similar para las fotos de los checks
+  Future<void> _addPhotoToCheck(CheckItem item) async {
+    if (_isTakingPhoto || _isProcessingImage) return;
+
+    setState(() {
+      _isTakingPhoto = true;
+    });
+
+    try {
+      final locationData = await LocationService.getCurrentLocation();
+
       setState(() {
-        _photos.add(PhotoItem(
-          imagePath: permanentPath,
-          type: photoType,
-          description: result,
-        ));
+        _isProcessingImage = true;
+        _isTakingPhoto = false;
       });
+
+      final pickedFile = await _picker.pickImage(
+        source: ImageSource.camera,
+        maxWidth: 1024,
+        maxHeight: 1024,
+        imageQuality: 85,
+      );
+
+      if (pickedFile == null) {
+        setState(() => _isProcessingImage = false);
+        return;
+      }
+
+      final permanentPath = await _saveImagePermanently(pickedFile.path);
+
+      if (mounted) {
+        setState(() {
+          item.imagePath = permanentPath;
+          item.latitude = locationData['latitude'];
+          item.longitude = locationData['longitude'];
+          item.address = locationData['address'];
+          _isProcessingImage = false;
+        });
+      }
+    } catch (e) {
+      print('Error al tomar foto para check: $e');
+      if (mounted) {
+        setState(() => _isProcessingImage = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Error al procesar la imagen')),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isTakingPhoto = false);
+      }
+    }
+  }
+
+// Método auxiliar para obtener los tipos de foto que faltan
+  List<String> _getMissingPhotoTypes() {
+    return _requiredPhotoTypes.where((type) {
+      return !_photos.any((photo) => photo.type == type);
+    }).toList();
+  }
+
+// Método para actualizar la dirección cuando haya conexión
+  void _updatePhotoAddress(PhotoItem photo, double lat, double lng) async {
+    final address = await LocationService.getAddressFromCoordinates(lat, lng);
+
+    if (mounted) {
+      setState(() {
+        photo.address = address;
+      });
+
+      // Actualizar en la base de datos local
+      await _updatePhotoAddressInLocalDB(photo);
     }
   }
 
   void _addRecommendation() async {
-    final description = _recommendationController.text.trim();
-    if (description.isEmpty) return;
-
-    if (_editingRecommendationId != null) {
-      setState(() {
-        final index = _recommendations
-            .indexWhere((r) => r.id == _editingRecommendationId);
-        if (index != -1) {
-          _recommendations[index] = Recommendation(
-            id: _editingRecommendationId!,
-            description: description,
-            imagePath: _recommendations[index].imagePath,
-          );
-        }
-        _editingRecommendationId = null;
-      });
-    } else {
-      setState(() {
-        _recommendations.add(Recommendation(
-          id: const Uuid().v4(),
-          description: description,
-        ));
-      });
-    }
-
-    _recommendationController.clear();
-  }
-
-  void _addPhotoToRecommendation(String recommendationId) async {
-    final pickedFile = await _picker.pickImage(source: ImageSource.camera);
-    if (pickedFile == null) return;
-
-    final permanentPath = await _saveImagePermanently(pickedFile.path);
+    // Verificar si ya se está procesando una foto
+    if (_isTakingPhoto || _isProcessingImage) return;
 
     setState(() {
-      final index =
-          _recommendations.indexWhere((r) => r.id == recommendationId);
-      if (index != -1) {
-        _recommendations[index].imagePath = permanentPath;
-      }
+      _isTakingPhoto = true;
     });
+
+    try {
+      // Obtener ubicación
+      final locationData = await LocationService.getCurrentLocation();
+
+      setState(() {
+        _isProcessingImage = true;
+        _isTakingPhoto = false;
+      });
+
+      final pickedFile = await _picker.pickImage(
+        source: ImageSource.camera,
+        maxWidth: 1024,
+        maxHeight: 1024,
+        imageQuality: 85,
+      );
+
+      if (pickedFile == null) {
+        setState(() => _isProcessingImage = false);
+        return;
+      }
+
+      final permanentPath = await _saveImagePermanently(pickedFile.path);
+
+      // Ocultar indicador de procesamiento antes del diálogo
+      setState(() => _isProcessingImage = false);
+
+      // Luego pedir el texto
+      final descriptionController = TextEditingController();
+      final result = await showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) {
+          String currentText = '';
+          return WillPopScope(
+            onWillPop: () async => false, // Bloquea el botón de retroceso
+            child: StatefulBuilder(
+              builder: (context, setState) {
+                return AlertDialog(
+                  title: const Text('Descripción de la recomendación'),
+                  content: TextField(
+                    controller: descriptionController,
+                    decoration: const InputDecoration(
+                      labelText: 'Descripción obligatoria',
+                      border: OutlineInputBorder(),
+                    ),
+                    maxLines: 3,
+                    onChanged: (value) {
+                      setState(() {
+                        currentText = value;
+                      });
+                    },
+                  ),
+                  actions: [
+                    TextButton(
+                      onPressed: () {
+                        // Eliminar la foto si se cancela
+                        File(permanentPath).delete();
+                        Navigator.pop(context);
+                      },
+                      child: const Text('Cancelar'),
+                    ),
+                    TextButton(
+                      onPressed: currentText.trim().isEmpty
+                          ? null
+                          : () {
+                              Navigator.pop(
+                                  context, descriptionController.text);
+                            },
+                      child: const Text('Guardar'),
+                    ),
+                  ],
+                );
+              },
+            ),
+          );
+        },
+      );
+
+      if (result != null && mounted) {
+        setState(() {
+          _recommendations.add(Recommendation(
+            id: const Uuid().v4(),
+            description: result,
+            imagePath: permanentPath,
+            latitude: locationData['latitude'],
+            longitude: locationData['longitude'],
+            address: locationData['address'],
+          ));
+        });
+      }
+    } catch (e) {
+      print('Error al tomar foto para recomendación: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Error al procesar la imagen')),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isTakingPhoto = false;
+          _isProcessingImage = false;
+        });
+      }
+    }
   }
 
   void _removeRecommendation(String recommendationId) {
@@ -817,8 +1127,47 @@ class _MaintenanceCheckFormState extends State<MaintenanceCheckForm1>
   }
 
   void _editRecommendation(Recommendation recommendation) {
-    _recommendationController.text = recommendation.description;
-    _editingRecommendationId = recommendation.id;
+    final descriptionController =
+        TextEditingController(text: recommendation.description);
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Editar descripción de la recomendación'),
+        content: TextField(
+          controller: descriptionController,
+          decoration: const InputDecoration(
+            labelText: 'Descripción',
+            border: OutlineInputBorder(),
+          ),
+          maxLines: 3,
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancelar'),
+          ),
+          TextButton(
+            onPressed: () {
+              if (descriptionController.text.trim().isEmpty) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('La descripción es obligatoria'),
+                  ),
+                );
+                return;
+              }
+
+              setState(() {
+                recommendation.description = descriptionController.text;
+              });
+              Navigator.pop(context);
+            },
+            child: const Text('Guardar'),
+          ),
+        ],
+      ),
+    );
   }
 
   // Método para navegar a una sección específica
@@ -881,7 +1230,7 @@ class _MaintenanceCheckFormState extends State<MaintenanceCheckForm1>
         TextFormField(
           controller: _transportUnitController,
           decoration: const InputDecoration(
-            labelText: 'Unidad de transporte',
+            labelText: 'UNIDAD DE TRANSPORTE',
             border: OutlineInputBorder(),
           ),
         ),
@@ -917,7 +1266,7 @@ class _MaintenanceCheckFormState extends State<MaintenanceCheckForm1>
         TextFormField(
           controller: _horometerController,
           decoration: const InputDecoration(
-            labelText: 'Horómetro',
+            labelText: 'HORÓMETRO',
             border: OutlineInputBorder(),
           ),
           keyboardType: TextInputType.number,
@@ -926,7 +1275,7 @@ class _MaintenanceCheckFormState extends State<MaintenanceCheckForm1>
         TextFormField(
           controller: _mileageController,
           decoration: const InputDecoration(
-            labelText: 'Kilometraje',
+            labelText: 'KILOMETRAJE DE UNIDAD DE TRANSPORTE',
             border: OutlineInputBorder(),
           ),
           keyboardType: TextInputType.number,
@@ -953,16 +1302,16 @@ class _MaintenanceCheckFormState extends State<MaintenanceCheckForm1>
           style: TextStyle(fontWeight: FontWeight.bold),
         ),
         const SizedBox(height: 8),
-        if (_maintenanceType == 'preventivo')
+        if (_maintenanceType == 'correctivo') // Cambiado de preventivo
           TextFormField(
             controller: _preventiveServiceController,
             decoration: const InputDecoration(
               labelText: 'Servicio',
               border: OutlineInputBorder(),
             ),
-            keyboardType: TextInputType.number,
+            keyboardType: TextInputType.text,
           ),
-        if (_maintenanceType == 'correctivo')
+        if (_maintenanceType == 'preventivo') // Cambiado de correctivo
           Column(
             children: [
               DropdownButtonFormField<String>(
@@ -1009,13 +1358,76 @@ class _MaintenanceCheckFormState extends State<MaintenanceCheckForm1>
                       labelText: 'Especificar servicio',
                       border: OutlineInputBorder(),
                     ),
-                    keyboardType: TextInputType.number,
+                    keyboardType: TextInputType.text,
                   ),
                 ),
             ],
           ),
       ],
     );
+  }
+
+  Future<void> _addGeneralPhotosFromGallery() async {
+    if (_isTakingPhoto || _isProcessingImage) return;
+
+    setState(() {
+      _isTakingPhoto = true;
+    });
+
+    try {
+      final pickedFiles = await _picker.pickMultiImage(
+        maxWidth: 1024,
+        maxHeight: 1024,
+        imageQuality: 85,
+      );
+
+      if (pickedFiles == null || pickedFiles.isEmpty) {
+        setState(() => _isTakingPhoto = false);
+        return;
+      }
+
+      setState(() {
+        _isProcessingImage = true;
+        _isTakingPhoto = false;
+      });
+
+      final locationData = await LocationService.getCurrentLocation();
+
+      for (final pickedFile in pickedFiles) {
+        final permanentPath = await _saveImagePermanently(pickedFile.path);
+
+        setState(() {
+          _photos.add(PhotoItem(
+            imagePath: permanentPath,
+            type: 'Evidencias',
+            description: 'Foto de evidencia general',
+            latitude: locationData['latitude'],
+            longitude: locationData['longitude'],
+            address: locationData['address'],
+            needsAddressLookup: locationData['needsAddressLookup'],
+          ));
+        });
+
+        if (locationData['needsAddressLookup'] == true &&
+            locationData['latitude'] != null &&
+            locationData['longitude'] != null) {
+          _updatePhotoAddress(_photos.last, locationData['latitude'],
+              locationData['longitude']);
+        }
+      }
+    } catch (e) {
+      print('Error al seleccionar fotos: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Error al procesar las imágenes')),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isTakingPhoto = false;
+          _isProcessingImage = false;
+        });
+      }
+    }
   }
 
   Widget _buildMaintenanceChecksSection() {
@@ -1047,6 +1459,11 @@ class _MaintenanceCheckFormState extends State<MaintenanceCheckForm1>
 
   Widget _buildCheckItem(CheckItem item) {
     final commentFocusNode = FocusNode();
+    final isStatusNotGood = item.status != 1;
+
+    // Crear un controlador de texto para este campo específico
+    final commentController = TextEditingController(text: item.comment);
+
     return Card(
       margin: const EdgeInsets.symmetric(vertical: 8),
       child: Padding(
@@ -1067,44 +1484,63 @@ class _MaintenanceCheckFormState extends State<MaintenanceCheckForm1>
                 _buildStatusButton(item, 3, Colors.red, 'CORRECTIVA'),
               ],
             ),
+/*             if (isStatusNotGood) ...[
+              const SizedBox(height: 12),
+              Text(
+                'Campos obligatorios para este estado:',
+                style: TextStyle(
+                  fontSize: 12,
+                  color: Colors.red,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ], */
             if (item.status != 1) ...[
               const SizedBox(height: 12),
               TextFormField(
+                controller:
+                    commentController, // Usar el controlador en lugar de initialValue
                 textInputAction: TextInputAction.done,
                 focusNode: commentFocusNode,
                 decoration: InputDecoration(
-                  labelText: item.status == 1
-                      ? 'Comentario (opcional)'
-                      : 'Comentario (obligatorio)',
+                  labelText: isStatusNotGood
+                      ? 'Comentario (obligatorio) *'
+                      : 'Comentario (opcional)',
                   border: const OutlineInputBorder(),
+                  errorText: isStatusNotGood && (commentController.text.isEmpty)
+                      ? 'Este campo es obligatorio'
+                      : null,
                 ),
                 maxLines: 2,
-                onChanged: (value) => item.comment = value,
-                initialValue: item.comment,
+                onChanged: (value) {
+                  // Actualizar directamente el comentario del ítem
+                  item.comment = value;
+                },
                 onFieldSubmitted: (_) {
                   commentFocusNode.unfocus();
                 },
               ),
               const SizedBox(height: 8),
               if (_isEditable)
-                ElevatedButton.icon(
-                  icon: const Icon(Icons.camera_alt),
-                  label: Text(item.imagePath == null
-                      ? 'Agregar Imagen'
-                      : 'Reemplazar Imagen'),
-                  onPressed: () async {
-                    final pickedFile =
-                        await _picker.pickImage(source: ImageSource.camera);
-                    if (pickedFile != null) {
-                      final permanentPath =
-                          await _saveImagePermanently(pickedFile.path);
-                      if (mounted) {
-                        setState(() {
-                          item.imagePath = permanentPath;
-                        });
-                      }
-                    }
-                  },
+                Center(
+                  child: ElevatedButton.icon(
+                    icon: const Icon(Icons.camera_alt),
+                    label: Text(
+                      item.imagePath == null
+                          ? isStatusNotGood
+                              ? 'Agregar Imagen'
+                              : 'Agregar Imagen (opcional)'
+                          : 'Reemplazar Imagen',
+                      style: TextStyle(
+                        color: isStatusNotGood && item.imagePath == null
+                            ? Colors.red
+                            : null,
+                      ),
+                    ),
+                    onPressed: (_isTakingPhoto || _isProcessingImage)
+                        ? null
+                        : () => _addPhotoToCheck(item),
+                  ),
                 ),
               if (item.imagePath != null)
                 Padding(
@@ -1116,6 +1552,28 @@ class _MaintenanceCheckFormState extends State<MaintenanceCheckForm1>
                     fit: BoxFit.cover,
                   ),
                 ),
+              if (isStatusNotGood && item.imagePath == null)
+                Text(
+                  'Foto obligatoria *',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Colors.red,
+                  ),
+                ),
+              if (item.latitude != null && item.longitude != null) ...[
+                const SizedBox(height: 8),
+                Text(
+                  'Coordenadas: ${item.latitude!.toStringAsFixed(6)}, ${item.longitude!.toStringAsFixed(6)}',
+                  style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                ),
+              ],
+              if (item.address != null && item.address!.isNotEmpty) ...[
+                const SizedBox(height: 4),
+                Text(
+                  'Dirección: ${item.address}',
+                  style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                ),
+              ],
             ],
           ],
         ),
@@ -1156,33 +1614,20 @@ class _MaintenanceCheckFormState extends State<MaintenanceCheckForm1>
         ),
         const SizedBox(height: 8),
         const Text(
-          'Agregue recomendaciones con descripción y foto si es necesario',
+          'Agregue recomendaciones con foto y descripción',
           style: TextStyle(fontStyle: FontStyle.italic),
         ),
         const SizedBox(height: 16),
 
-        // Campo para agregar/editar recomendación
         if (_isEditable)
-          Row(
-            children: [
-              Expanded(
-                child: TextFormField(
-                  controller: _recommendationController,
-                  decoration: const InputDecoration(
-                    labelText: 'Descripción de la recomendación',
-                    border: OutlineInputBorder(),
-                  ),
-                  keyboardType: TextInputType.multiline,
-                ),
-              ),
-              const SizedBox(width: 8),
-              ElevatedButton(
-                onPressed: _addRecommendation,
-                child: Text(_editingRecommendationId != null
-                    ? 'Actualizar'
-                    : 'Agregar'),
-              ),
-            ],
+          Center(
+            child: ElevatedButton.icon(
+              icon: const Icon(Icons.add),
+              label: const Text('Agregar Recomendación'),
+              onPressed: (_isTakingPhoto || _isProcessingImage)
+                  ? null
+                  : _addRecommendation,
+            ),
           ),
         if (_isEditable) const SizedBox(height: 16),
 
@@ -1237,19 +1682,24 @@ class _MaintenanceCheckFormState extends State<MaintenanceCheckForm1>
                     width: double.infinity,
                     fit: BoxFit.cover,
                   ),
-                  const SizedBox(height: 8),
+                  // Información de ubicación para Recommendation
+                  if (recommendation.latitude != null &&
+                      recommendation.longitude != null) ...[
+                    const SizedBox(height: 8),
+                    Text(
+                      'Coordenadas: ${recommendation.latitude!.toStringAsFixed(6)}, ${recommendation.longitude!.toStringAsFixed(6)}',
+                      style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                    ),
+                  ],
+                  if (recommendation.address != null &&
+                      recommendation.address!.isNotEmpty) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      'Dirección: ${recommendation.address}',
+                      style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                    ),
+                  ],
                 ],
-              ),
-
-            if (_isEditable)
-              Center(
-                child: ElevatedButton.icon(
-                  icon: const Icon(Icons.camera_alt),
-                  label: Text(recommendation.imagePath == null
-                      ? 'Agregar Foto'
-                      : 'Reemplazar Foto'),
-                  onPressed: () => _addPhotoToRecommendation(recommendation.id),
-                ),
               ),
           ],
         ),
@@ -1258,6 +1708,8 @@ class _MaintenanceCheckFormState extends State<MaintenanceCheckForm1>
   }
 
   Widget _buildPhotosSection() {
+    final missingTypes = _getMissingPhotoTypes();
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -1270,7 +1722,21 @@ class _MaintenanceCheckFormState extends State<MaintenanceCheckForm1>
           'Tipos: Antes, Después, Placa, Horómetro, Falla, Reparación',
           style: TextStyle(fontStyle: FontStyle.italic),
         ),
+
+        // Indicador de tipos faltantes
+        if (missingTypes.isNotEmpty) ...[
+          const SizedBox(height: 8),
+          Text(
+            'Faltan: ${missingTypes.join(', ')}',
+            style: TextStyle(
+              color: Colors.red,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ],
+
         const SizedBox(height: 16),
+
         if (_photos.isEmpty)
           const Center(
             child: Text(
@@ -1278,20 +1744,46 @@ class _MaintenanceCheckFormState extends State<MaintenanceCheckForm1>
               style: TextStyle(fontStyle: FontStyle.italic),
             ),
           ),
+
         ..._photos.map((photo) => _buildPhotoItem(photo)).toList(),
+
         const SizedBox(height: 16),
+
         if (_isEditable)
           Center(
             child: ElevatedButton.icon(
               icon: const Icon(Icons.add_a_photo),
               label: const Text('Agregar Foto'),
-              onPressed: _addPhoto,
+              onPressed:
+                  (_isTakingPhoto || _isProcessingImage) ? null : _addPhoto,
+            ),
+          ),
+        if (_isEditable)
+          Center(
+            child: Column(
+              children: [
+/*                 ElevatedButton.icon(
+                  icon: const Icon(Icons.add_a_photo),
+                  label: const Text('Agregar Foto (Cámara)'),
+                  onPressed:
+                      (_isTakingPhoto || _isProcessingImage) ? null : _addPhoto,
+                ),
+                const SizedBox(height: 10), */
+                ElevatedButton.icon(
+                  icon: const Icon(Icons.photo_library),
+                  label: const Text('Agregar Fotos Generales (Galería)'),
+                  onPressed: (_isTakingPhoto || _isProcessingImage)
+                      ? null
+                      : _addGeneralPhotosFromGallery,
+                ),
+              ],
             ),
           ),
       ],
     );
   }
 
+//corr
   Widget _buildPhotoItem(PhotoItem photo) {
     return Card(
       margin: const EdgeInsets.symmetric(vertical: 8),
@@ -1332,8 +1824,89 @@ class _MaintenanceCheckFormState extends State<MaintenanceCheckForm1>
               width: double.infinity,
               fit: BoxFit.cover,
             ),
+            const SizedBox(height: 8),
+            if (photo.latitude != null && photo.longitude != null) ...[
+              const SizedBox(height: 8),
+              Text(
+                'Coordenadas: ${photo.latitude!.toStringAsFixed(6)}, ${photo.longitude!.toStringAsFixed(6)}',
+                style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+              ),
+            ],
+            if (photo.address.isNotEmpty) ...[
+              const SizedBox(height: 4),
+              Text(
+                'Dirección: ${photo.address}',
+                style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+              ),
+            ],
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildPhotoTypeSection(String type, List<PhotoItem> photos) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          '$type (${photos.length})',
+          style: TextStyle(
+            fontWeight: FontWeight.bold,
+            color: photos.isEmpty ? Colors.red : Colors.green,
+          ),
+        ),
+        const SizedBox(height: 8),
+        if (photos.isEmpty)
+          Text(
+            'No hay fotos de tipo $type',
+            style: TextStyle(
+              fontStyle: FontStyle.italic,
+              color: Colors.grey,
+            ),
+          ),
+        if (photos.isNotEmpty)
+          SizedBox(
+            height: 100,
+            child: ListView.builder(
+              scrollDirection: Axis.horizontal,
+              itemCount: photos.length,
+              itemBuilder: (context, index) {
+                return _buildPhotoThumbnail(photos[index]);
+              },
+            ),
+          ),
+        const SizedBox(height: 16),
+      ],
+    );
+  }
+
+  Widget _buildPhotoThumbnail(PhotoItem photo) {
+    return Container(
+      margin: const EdgeInsets.only(right: 8),
+      width: 100,
+      child: Stack(
+        children: [
+          Image.file(
+            File(photo.imagePath),
+            width: 100,
+            height: 100,
+            fit: BoxFit.cover,
+          ),
+          if (_isEditable)
+            Positioned(
+              top: 0,
+              right: 0,
+              child: IconButton(
+                icon: Icon(Icons.delete, color: Colors.red),
+                onPressed: () {
+                  setState(() {
+                    _photos.remove(photo);
+                  });
+                },
+              ),
+            ),
+        ],
       ),
     );
   }
@@ -1389,6 +1962,117 @@ class _MaintenanceCheckFormState extends State<MaintenanceCheckForm1>
     );
   }
 
+  // En tu _MaintenanceCheckFormState
+  void _retryAddressLookups() async {
+    final connectivityResult = await Connectivity().checkConnectivity();
+    if (connectivityResult == ConnectivityResult.none) {
+      return; // No hay conexión, no intentar nada
+    }
+
+    // Para fotos
+    for (var photo in _photos) {
+      if ((photo.address.isEmpty || photo.needsAddressLookup) &&
+          photo.latitude != null &&
+          photo.longitude != null) {
+        final newAddress = await LocationService.getAddressFromCoordinates(
+            photo.latitude!, photo.longitude!);
+
+        if (mounted && newAddress.isNotEmpty) {
+          setState(() {
+            photo.address = newAddress;
+            photo.needsAddressLookup = false;
+          });
+
+          // Actualizar en base de datos local
+          await _updatePhotoAddressInLocalDB(photo);
+        }
+      }
+    }
+
+    // Para checkItems
+    for (var checkItem in _checkItems) {
+      if ((checkItem.address == null ||
+              checkItem.address!.isEmpty ||
+              checkItem.needsAddressLookup) &&
+          checkItem.latitude != null &&
+          checkItem.longitude != null) {
+        final newAddress = await LocationService.getAddressFromCoordinates(
+            checkItem.latitude!, checkItem.longitude!);
+
+        if (mounted && newAddress.isNotEmpty) {
+          setState(() {
+            checkItem.address = newAddress;
+            checkItem.needsAddressLookup = false;
+          });
+
+          // Actualizar en base de datos local
+          await _updateCheckItemAddressInLocalDB(checkItem);
+        }
+      }
+    }
+
+    // Para recomendaciones
+    for (var recommendation in _recommendations) {
+      if ((recommendation.address == null ||
+              recommendation.address!.isEmpty ||
+              recommendation.needsAddressLookup) &&
+          recommendation.latitude != null &&
+          recommendation.longitude != null) {
+        final newAddress = await LocationService.getAddressFromCoordinates(
+            recommendation.latitude!, recommendation.longitude!);
+
+        if (mounted && newAddress.isNotEmpty) {
+          setState(() {
+            recommendation.address = newAddress;
+            recommendation.needsAddressLookup = false;
+          });
+
+          // Actualizar en base de datos local
+          await _updateRecommendationAddressInLocalDB(recommendation);
+        }
+      }
+    }
+
+    // Mostrar mensaje de éxito
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+            content: Text('Direcciones actualizadas con conexión disponible')),
+      );
+    }
+  }
+
+// Métodos auxiliares para actualizar en la base de datos local
+  Future<void> _updatePhotoAddressInLocalDB(PhotoItem photo) async {
+    try {
+      await localDB.updatePhotoAddress(
+          photo.imagePath, // O usar un ID si tienes uno
+          photo.address);
+    } catch (e) {
+      print('Error actualizando dirección de foto en BD: $e');
+    }
+  }
+
+  Future<void> _updateCheckItemAddressInLocalDB(CheckItem checkItem) async {
+    try {
+      await localDB.updateCheckItemAddress(
+          checkItem.id.toString(), // O el identificador que uses
+          checkItem.address ?? '');
+    } catch (e) {
+      print('Error actualizando dirección de checkItem en BD: $e');
+    }
+  }
+
+  Future<void> _updateRecommendationAddressInLocalDB(
+      Recommendation recommendation) async {
+    try {
+      await localDB.updateRecommendationAddress(
+          recommendation.id, recommendation.address ?? '');
+    } catch (e) {
+      print('Error actualizando dirección de recomendación en BD: $e');
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_isLoading) {
@@ -1403,6 +2087,21 @@ class _MaintenanceCheckFormState extends State<MaintenanceCheckForm1>
         title: const Text('Formulario de Mantenimiento'),
         bottom: _buildTabBar(),
         actions: [
+          // Indicador de carga global para operaciones de cámara
+          if (_isTakingPhoto || _isProcessingImage)
+            const Padding(
+              padding: EdgeInsets.all(8.0),
+              child: Center(
+                child: SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                  ),
+                ),
+              ),
+            ),
           IconButton(
             icon: Icon(_isOnline ? Icons.cloud_done : Icons.cloud_off),
             onPressed: () async {
@@ -1420,143 +2119,170 @@ class _MaintenanceCheckFormState extends State<MaintenanceCheckForm1>
           ),
         ],
       ),
-      body: GestureDetector(
-        onHorizontalDragEnd: (details) {
-          // Detectar deslizamiento rápido para cambiar de página
-          if (details.primaryVelocity! > 100) {
-            // Deslizamiento rápido a la izquierda
-            if (_currentTabIndex > 0) {
-              _tabController.animateTo(_currentTabIndex - 1);
-            }
-          } else if (details.primaryVelocity! < -100) {
-            // Deslizamiento rápido a la derecha
-            if (_currentTabIndex < 3) {
-              _tabController.animateTo(_currentTabIndex + 1);
-            }
-          }
-        },
-        child: PageView(
-          controller: _pageController,
-          onPageChanged: (index) {
-            _tabController.animateTo(index);
-            setState(() {
-              _currentTabIndex = index;
-            });
-          },
-          // Física personalizada para un deslizamiento más sensible
-          physics: const BouncingScrollPhysics(
-            parent: AlwaysScrollableScrollPhysics(),
-          ),
-          children: [
-            // Contenido de la pestaña Información General
-            SingleChildScrollView(
-              controller: _generalScrollController,
-              padding: const EdgeInsets.all(16.0),
-              child: Column(
-                children: [
-                  _buildSectionHeader(
-                    key: _sectionKeys['general']!,
-                    title: 'Información General',
-                    icon: Icons.info,
-                  ),
-                  AbsorbPointer(
-                    absorbing: !_isEditable,
-                    child: Opacity(
-                      opacity: _isEditable ? 1.0 : 0.6,
-                      child: _buildGeneralSection(),
-                    ),
-                  ),
-                  const SizedBox(height: 32),
-                ],
+      body: Stack(
+        children: [
+          GestureDetector(
+            onHorizontalDragEnd: (details) {
+              // Detectar deslizamiento rápido para cambiar de página
+              if (details.primaryVelocity! > 100) {
+                // Deslizamiento rápido a la izquierda
+                if (_currentTabIndex > 0) {
+                  _tabController.animateTo(_currentTabIndex - 1);
+                }
+              } else if (details.primaryVelocity! < -100) {
+                // Deslizamiento rápido a la derecha
+                if (_currentTabIndex < 3) {
+                  _tabController.animateTo(_currentTabIndex + 1);
+                }
+              }
+            },
+            child: PageView(
+              controller: _pageController,
+              onPageChanged: (index) {
+                _tabController.animateTo(index);
+                setState(() {
+                  _currentTabIndex = index;
+                });
+              },
+              // Física personalizada para un deslizamiento más sensible
+              physics: const BouncingScrollPhysics(
+                parent: AlwaysScrollableScrollPhysics(),
               ),
-            ),
-
-            // Contenido de la pestaña Checks de Mantenimiento
-            SingleChildScrollView(
-              controller: _checksScrollController,
-              padding: const EdgeInsets.all(16.0),
-              child: Column(
-                children: [
-                  _buildSectionHeader(
-                    key: _sectionKeys['checks']!,
-                    title: 'Checks de Mantenimiento',
-                    icon: Icons.checklist,
-                  ),
-                  AbsorbPointer(
-                    absorbing: !_isEditable,
-                    child: Opacity(
-                      opacity: _isEditable ? 1.0 : 0.6,
-                      child: _buildMaintenanceChecksSection(),
-                    ),
-                  ),
-                  const SizedBox(height: 32),
-                ],
-              ),
-            ),
-
-            // Contenido de la pestaña Fotos
-            SingleChildScrollView(
-              controller: _photosScrollController,
-              padding: const EdgeInsets.all(16.0),
-              child: Column(
-                children: [
-                  _buildSectionHeader(
-                    key: _sectionKeys['photos']!,
-                    title: 'Fotos',
-                    icon: Icons.photo_library,
-                  ),
-                  AbsorbPointer(
-                    absorbing: !_isEditable,
-                    child: Opacity(
-                      opacity: _isEditable ? 1.0 : 0.6,
-                      child: _buildPhotosSection(),
-                    ),
-                  ),
-                  const SizedBox(height: 32),
-                ],
-              ),
-            ),
-
-            // Contenido de la pestaña Recomendaciones
-            SingleChildScrollView(
-              controller: _recommendationsScrollController,
-              padding: const EdgeInsets.all(16.0),
-              child: Column(
-                children: [
-                  _buildSectionHeader(
-                    key: _sectionKeys['recommendations']!,
-                    title: 'Recomendaciones',
-                    icon: Icons.recommend,
-                  ),
-                  AbsorbPointer(
-                    absorbing: !_isEditable,
-                    child: Opacity(
-                      opacity: _isEditable ? 1.0 : 0.6,
-                      child: _buildRecommendationsSection(),
-                    ),
-                  ),
-                  const SizedBox(height: 32),
-
-                  // Botones de acción en la última pestaña
-                  if (_isEditable) _buildActionButtons(),
-                  if (!_isEditable)
-                    Center(
-                      child: Padding(
-                        padding: const EdgeInsets.all(16.0),
-                        child: Text(
-                          _isOnline ? 'Sincronizando...' : 'Esperando conexión',
-                          style: TextStyle(
-                              fontSize: 18,
-                              color: Theme.of(context).primaryColor,
-                              fontWeight: FontWeight.bold),
+              children: [
+                // Contenido de la pestaña Información General
+                SingleChildScrollView(
+                  controller: _generalScrollController,
+                  padding: const EdgeInsets.all(16.0),
+                  child: Column(
+                    children: [
+                      _buildSectionHeader(
+                        key: _sectionKeys['general']!,
+                        title: 'Información General',
+                        icon: Icons.info,
+                      ),
+                      AbsorbPointer(
+                        absorbing: !_isEditable,
+                        child: Opacity(
+                          opacity: _isEditable ? 1.0 : 0.6,
+                          child: _buildGeneralSection(),
                         ),
                       ),
+                      const SizedBox(height: 32),
+                    ],
+                  ),
+                ),
+
+                // Contenido de la pestaña Checks de Mantenimiento
+                SingleChildScrollView(
+                  controller: _checksScrollController,
+                  padding: const EdgeInsets.all(16.0),
+                  child: Column(
+                    children: [
+                      _buildSectionHeader(
+                        key: _sectionKeys['checks']!,
+                        title: 'Checks de Mantenimiento',
+                        icon: Icons.checklist,
+                      ),
+                      AbsorbPointer(
+                        absorbing: !_isEditable,
+                        child: Opacity(
+                          opacity: _isEditable ? 1.0 : 0.6,
+                          child: _buildMaintenanceChecksSection(),
+                        ),
+                      ),
+                      const SizedBox(height: 32),
+                    ],
+                  ),
+                ),
+
+                // Contenido de la pestaña Fotos
+                SingleChildScrollView(
+                  controller: _photosScrollController,
+                  padding: const EdgeInsets.all(16.0),
+                  child: Column(
+                    children: [
+                      _buildSectionHeader(
+                        key: _sectionKeys['photos']!,
+                        title: 'Fotos',
+                        icon: Icons.photo_library,
+                      ),
+                      AbsorbPointer(
+                        absorbing: !_isEditable,
+                        child: Opacity(
+                          opacity: _isEditable ? 1.0 : 0.6,
+                          child: _buildPhotosSection(),
+                        ),
+                      ),
+                      const SizedBox(height: 32),
+                    ],
+                  ),
+                ),
+
+                // Contenido de la pestaña Recomendaciones
+                SingleChildScrollView(
+                  controller: _recommendationsScrollController,
+                  padding: const EdgeInsets.all(16.0),
+                  child: Column(
+                    children: [
+                      _buildSectionHeader(
+                        key: _sectionKeys['recommendations']!,
+                        title: 'Recomendaciones',
+                        icon: Icons.recommend,
+                      ),
+                      AbsorbPointer(
+                        absorbing: !_isEditable,
+                        child: Opacity(
+                          opacity: _isEditable ? 1.0 : 0.6,
+                          child: _buildRecommendationsSection(),
+                        ),
+                      ),
+                      const SizedBox(height: 32),
+
+                      // Botones de acción en la última pestaña
+                      if (_isEditable) _buildActionButtons(),
+                      if (!_isEditable)
+                        Center(
+                          child: Padding(
+                            padding: const EdgeInsets.all(16.0),
+                            child: Text(
+                              _isOnline
+                                  ? 'Sincronizando...'
+                                  : 'Esperando conexión',
+                              style: TextStyle(
+                                  fontSize: 18,
+                                  color: Theme.of(context).primaryColor,
+                                  fontWeight: FontWeight.bold),
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          // Overlay para bloquear la interfaz durante operaciones de cámara
+          if (_isTakingPhoto || _isProcessingImage)
+            Container(
+              color: Colors.black.withOpacity(0.5),
+              child: const Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    CircularProgressIndicator(
+                      valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
                     ),
-                ],
+                    SizedBox(height: 16),
+                    Text(
+                      'Procesando imagen...',
+                      style: TextStyle(color: Colors.white, fontSize: 16),
+                    ),
+                  ],
+                ),
               ),
             ),
-          ],
-        ),
+        ],
       ),
     );
   }

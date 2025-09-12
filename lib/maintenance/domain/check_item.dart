@@ -4,6 +4,10 @@ class CheckItem {
   int status; // 1 = BIEN, 2 = REGULAR, 3 = CORRECTIVA
   String? comment;
   String? imagePath;
+  double? latitude;
+  double? longitude;
+  String? address;
+  bool needsAddressLookup;
 
   CheckItem({
     required this.id,
@@ -11,6 +15,10 @@ class CheckItem {
     required this.status,
     this.comment,
     this.imagePath,
+    this.latitude,
+    this.longitude,
+    this.address,
+    this.needsAddressLookup = false,
   });
 
   Map<String, dynamic> toJson() => {
@@ -19,6 +27,10 @@ class CheckItem {
         'status': status,
         'comment': comment,
         'imagePath': imagePath,
+        'latitude': latitude,
+        'longitude': longitude,
+        'address': address,
+        'needsAddressLookup': needsAddressLookup,
       };
 
   factory CheckItem.fromJson(Map<String, dynamic> json) => CheckItem(
@@ -27,5 +39,9 @@ class CheckItem {
         status: json['status'],
         comment: json['comment'],
         imagePath: json['imagePath'],
+        latitude: json['latitude'],
+        longitude: json['longitude'],
+        address: json['address'],
+        needsAddressLookup: json['needsAddressLookup'],
       );
 }

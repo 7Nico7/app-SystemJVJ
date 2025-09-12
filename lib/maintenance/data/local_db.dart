@@ -9,10 +9,10 @@ class LocalDB {
   static Database? _database;
 
   // Estados posibles para las inspecciones
-  static const int STATUS_DRAFT = 0; // Borrador (editable)
-  static const int STATUS_PENDING = 1; // Pendiente de sincronización
-  static const int STATUS_CONCLUDED = 2; // Concluida (no editable)
-  static const int STATUS_SYNCED = 3; // Sincronizada con el backend
+  static const int STATUS_DRAFT = 0;
+  static const int STATUS_PENDING = 1;
+  static const int STATUS_CONCLUDED = 2;
+  static const int STATUS_SYNCED = 3;
 
   LocalDB._internal();
 
@@ -27,7 +27,7 @@ class LocalDB {
     String path = join(dir.path, 'inspections.db');
     return openDatabase(
       path,
-      version: 5, // Incrementamos la versión por la nueva tabla
+      version: 7,
       onCreate: (db, version) async {
         await db.execute('''
           CREATE TABLE inspections(
@@ -52,7 +52,11 @@ class LocalDB {
             maintenance_checks_id INTEGER NOT NULL,
             status INTEGER NOT NULL,
             comment TEXT,
+            latitude TEXT,
+            longitude TEXT,
+            address TEXT,     
             image_path TEXT,
+            needs_address_lookup INTEGER DEFAULT 1,
             FOREIGN KEY (inspection_local_id) REFERENCES inspections(local_id)
           )
         ''');
@@ -63,18 +67,27 @@ class LocalDB {
             inspection_local_id TEXT NOT NULL,
             type TEXT NOT NULL,
             description TEXT NOT NULL,
+            latitude TEXT,
+            longitude TEXT,
+            address TEXT,
             image_path TEXT NOT NULL,
+ 
+            needs_address_lookup INTEGER DEFAULT 1,
             FOREIGN KEY (inspection_local_id) REFERENCES inspections(local_id)
           )
         ''');
 
-        // Nueva tabla para recomendaciones
         await db.execute('''
           CREATE TABLE inspection_recommendations(
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             inspection_local_id TEXT NOT NULL,
             description TEXT NOT NULL,
+            latitude TEXT,
+            longitude TEXT,
+            address TEXT,
             image_path TEXT,
+
+            needs_address_lookup INTEGER DEFAULT 1,
             FOREIGN KEY (inspection_local_id) REFERENCES inspections(local_id)
           )
         ''');
@@ -91,9 +104,47 @@ class LocalDB {
               inspection_local_id TEXT NOT NULL,
               description TEXT NOT NULL,
               image_path TEXT,
+              latitude TEXT,
+              longitude TEXT,
+              address TEXT,
+        
+              needs_address_lookup INTEGER DEFAULT 1,
               FOREIGN KEY (inspection_local_id) REFERENCES inspections(local_id)
             )
           ''');
+        }
+        if (oldVersion < 4) {
+          await db.execute(
+              'ALTER TABLE inspection_checks ADD COLUMN latitude TEXT');
+          await db.execute(
+              'ALTER TABLE inspection_checks ADD COLUMN longitude TEXT');
+          await db
+              .execute('ALTER TABLE inspection_checks ADD COLUMN address TEXT');
+
+          await db.execute(
+              'ALTER TABLE inspection_checks ADD COLUMN needs_address_lookup INTEGER DEFAULT 1');
+        }
+        if (oldVersion < 5) {
+          await db.execute(
+              'ALTER TABLE inspection_photos ADD COLUMN latitude TEXT');
+          await db.execute(
+              'ALTER TABLE inspection_photos ADD COLUMN longitude TEXT');
+          await db
+              .execute('ALTER TABLE inspection_photos ADD COLUMN address TEXT');
+
+          await db.execute(
+              'ALTER TABLE inspection_photos ADD COLUMN needs_address_lookup INTEGER DEFAULT 1');
+        }
+        if (oldVersion < 6) {
+          await db.execute(
+              'ALTER TABLE inspection_recommendations ADD COLUMN latitude TEXT');
+          await db.execute(
+              'ALTER TABLE inspection_recommendations ADD COLUMN longitude TEXT');
+          await db.execute(
+              'ALTER TABLE inspection_recommendations ADD COLUMN address TEXT');
+
+          await db.execute(
+              'ALTER TABLE inspection_recommendations ADD COLUMN needs_address_lookup INTEGER DEFAULT 1');
         }
       },
     );
@@ -159,31 +210,78 @@ class LocalDB {
   Future<List<Map<String, dynamic>>> getChecksForInspection(
       String localId) async {
     final db = await database;
-    return db.query(
+    final results = await db.query(
       'inspection_checks',
       where: 'inspection_local_id = ?',
       whereArgs: [localId],
     );
+
+    return results.map((check) {
+      // Crear una copia editable del mapa
+      final editableCheck = Map<String, dynamic>.from(check);
+
+      // Realizar las conversiones en la copia editable
+      if (editableCheck['latitude'] != null) {
+        editableCheck['latitude'] =
+            double.tryParse(editableCheck['latitude'].toString());
+      }
+      if (editableCheck['longitude'] != null) {
+        editableCheck['longitude'] =
+            double.tryParse(editableCheck['longitude'].toString());
+      }
+
+      return editableCheck;
+    }).toList();
   }
 
   Future<List<Map<String, dynamic>>> getPhotosForInspection(
       String localId) async {
     final db = await database;
-    return db.query(
+    final results = await db.query(
       'inspection_photos',
       where: 'inspection_local_id = ?',
       whereArgs: [localId],
     );
+
+    return results.map((photo) {
+      final editablePhoto = Map<String, dynamic>.from(photo);
+
+      if (editablePhoto['latitude'] != null) {
+        editablePhoto['latitude'] =
+            double.tryParse(editablePhoto['latitude'].toString());
+      }
+      if (editablePhoto['longitude'] != null) {
+        editablePhoto['longitude'] =
+            double.tryParse(editablePhoto['longitude'].toString());
+      }
+
+      return editablePhoto;
+    }).toList();
   }
 
   Future<List<Map<String, dynamic>>> getRecommendationsForInspection(
       String localId) async {
     final db = await database;
-    return db.query(
+    final results = await db.query(
       'inspection_recommendations',
       where: 'inspection_local_id = ?',
       whereArgs: [localId],
     );
+
+    return results.map((recommendation) {
+      final editableRecommendation = Map<String, dynamic>.from(recommendation);
+
+      if (editableRecommendation['latitude'] != null) {
+        editableRecommendation['latitude'] =
+            double.tryParse(editableRecommendation['latitude'].toString());
+      }
+      if (editableRecommendation['longitude'] != null) {
+        editableRecommendation['longitude'] =
+            double.tryParse(editableRecommendation['longitude'].toString());
+      }
+
+      return editableRecommendation;
+    }).toList();
   }
 
   Future<void> saveFullInspection({
@@ -192,6 +290,16 @@ class LocalDB {
     required List<Map<String, dynamic>> photos,
     required List<Map<String, dynamic>> recommendations,
   }) async {
+    print('Guardando inspección: ${inspection['local_id']}');
+    print('Checks: ${checks.length}');
+    print('Photos: ${photos.length}');
+    print('Recommendations: ${recommendations.length}');
+
+// En _loadDraft
+    print('Cargando inspección: $inspection');
+    print('Checks cargados: ${checks.length}');
+    print('Photos cargados: ${photos.length}');
+    print('Recommendations cargados: ${recommendations.length}');
     final db = await database;
     await db.transaction((txn) async {
       final existing = await txn.query(
@@ -218,7 +326,17 @@ class LocalDB {
       );
 
       for (var check in checks) {
-        await txn.insert('inspection_checks', check);
+        await txn.insert('inspection_checks', {
+          'inspection_local_id': check['inspection_local_id'],
+          'maintenance_checks_id': check['maintenance_checks_id'],
+          'status': check['status'],
+          'comment': check['comment'],
+          'image_path': check['image_path'],
+          // Agregar campos de ubicación
+          'latitude': check['latitude'],
+          'longitude': check['longitude'],
+          'address': check['address'],
+        });
       }
 
       await txn.delete(
@@ -228,10 +346,18 @@ class LocalDB {
       );
 
       for (var photo in photos) {
-        await txn.insert('inspection_photos', photo);
+        await txn.insert('inspection_photos', {
+          'inspection_local_id': photo['inspection_local_id'],
+          'type': photo['type'],
+          'description': photo['description'],
+          'image_path': photo['image_path'],
+          // Agregar campos de ubicación
+          'latitude': photo['latitude'],
+          'longitude': photo['longitude'],
+          'address': photo['address'],
+        });
       }
 
-      // Eliminar recomendaciones existentes y guardar las nuevas
       await txn.delete(
         'inspection_recommendations',
         where: 'inspection_local_id = ?',
@@ -239,14 +365,15 @@ class LocalDB {
       );
 
       for (var recommendation in recommendations) {
-        // Crear un nuevo mapa sin el campo 'id' si existe
-        final recData = {
+        await txn.insert('inspection_recommendations', {
           'inspection_local_id': recommendation['inspection_local_id'],
           'description': recommendation['description'],
           'image_path': recommendation['image_path'],
-        };
-
-        await txn.insert('inspection_recommendations', recData);
+          // Agregar campos de ubicación
+          'latitude': recommendation['latitude'],
+          'longitude': recommendation['longitude'],
+          'address': recommendation['address'],
+        });
       }
     });
   }
@@ -277,5 +404,38 @@ class LocalDB {
       batch.insert('inspection_recommendations', recommendation);
     }
     await batch.commit();
+  }
+
+  // En local_db.dart
+  Future<void> updatePhotoAddress(String imagePath, String address) async {
+    final db = await database;
+    await db.update(
+      'inspection_photos',
+      {'address': address, 'needs_address_lookup': 0},
+      where: 'image_path = ?',
+      whereArgs: [imagePath],
+    );
+  }
+
+  Future<void> updateCheckItemAddress(
+      String checkItemId, String address) async {
+    final db = await database;
+    await db.update(
+      'inspection_checks',
+      {'address': address, 'needs_address_lookup': 0},
+      where: 'maintenance_checks_id = ?',
+      whereArgs: [checkItemId],
+    );
+  }
+
+  Future<void> updateRecommendationAddress(
+      String recommendationId, String address) async {
+    final db = await database;
+    await db.update(
+      'inspection_recommendations',
+      {'address': address, 'needs_address_lookup': 0},
+      where: 'id = ?',
+      whereArgs: [recommendationId],
+    );
   }
 }

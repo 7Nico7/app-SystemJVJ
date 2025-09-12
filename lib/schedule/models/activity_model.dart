@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 
 class Activity {
+  final String scheduleId;
   final String id;
   final String? name;
   final String title;
@@ -35,6 +36,7 @@ class Activity {
   final String? mileage;
   final String? comment;
   Activity({
+    required this.scheduleId,
     required this.id,
     required this.maintenanceId,
     this.name,
@@ -90,6 +92,7 @@ class Activity {
         json['hourBaseOut'] != null ? json['hourBaseOut'] as String : null;
 
     return Activity(
+      scheduleId: json['id_schedule'].toString(),
       id: json['inspection_id'].toString(),
       maintenanceId: json['maintenanceId'],
       name: json['name'],
@@ -147,6 +150,7 @@ class Activity {
   }
 
   Activity copyWith({
+    String? scheduleId,
     String? id,
     int? maintenanceId,
     String? name,
@@ -181,6 +185,7 @@ class Activity {
     String? comment,
   }) {
     return Activity(
+        scheduleId: scheduleId ?? this.scheduleId,
         id: id ?? this.id,
         maintenanceId: maintenanceId ?? this.maintenanceId,
         name: name ?? this.name,
@@ -217,6 +222,7 @@ class Activity {
 
   Map<String, dynamic> toMap() {
     return {
+      'scheduleId': scheduleId,
       'id': id,
       'maintenanceId': maintenanceId,
       'name': name,
@@ -254,6 +260,7 @@ class Activity {
 
   factory Activity.fromMap(Map<String, dynamic> map) {
     return Activity(
+        scheduleId: map['scheduleId'],
         id: map['id'],
         maintenanceId: map['maintenanceId'],
         name: map['name'],
