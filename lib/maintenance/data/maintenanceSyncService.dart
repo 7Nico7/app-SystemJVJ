@@ -1,21 +1,16 @@
 import 'dart:io';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:dio/dio.dart';
-import 'package:flutter/widgets.dart';
+
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
-import 'package:provider/provider.dart';
+
 import 'package:systemjvj/core/utils/urlBase.dart';
-import 'package:systemjvj/schedule/providers/schedule_provider.dart';
+
 import 'package:systemjvj/schedule/repository/databaseHelper.dart';
 import 'package:workmanager/workmanager.dart';
 import 'local_db.dart';
 
-class SyncService {
-  static const int STATUS_DRAFT = 0;
-  static const int STATUS_PENDING = 1;
-  static const int STATUS_CONCLUDED = 2;
-  static const int STATUS_SYNCED = 3;
-
+class MaintenanceSyncService {
   final Dio dio = Dio();
   final LocalDB localDB = LocalDB();
   final FlutterSecureStorage storage = const FlutterSecureStorage();
@@ -37,11 +32,13 @@ class SyncService {
 
       // 2. Obtener datos de inspección local
       final inspection = await localDB.getInspection(localId);
-      if (inspection == null || inspection['status'] != STATUS_CONCLUDED) {
-        print(' SYNC Inspección no encontrada o no está concluida');
+      if (inspection == null ||
+          (inspection['status'] != LocalDB.STATUS_CONCLUDED_OFFLINE &&
+              inspection['status'] != LocalDB.STATUS_READY_FOR_SYNC)) {
+        print(
+            ' SYNC Inspección no encontrada o no está lista para sincronizar');
         return false;
       }
-
       // 3. Obtener checks, fotos y recomendaciones
       final checks = await localDB.getChecksForInspection(localId);
       final photos = await localDB.getPhotosForInspection(localId);
@@ -259,7 +256,7 @@ class SyncService {
       // 7. Procesar respuesta
       if (response.statusCode == 200) {
         print(' SYNC Sincronización exitosa!');
-        await localDB.updateInspectionStatus(localId, STATUS_SYNCED);
+        await localDB.updateInspectionStatus(localId, LocalDB.STATUS_SYNCED);
 
         // Actualizar la actividad relacionada con mejor logging
         try {
@@ -345,11 +342,9 @@ class SyncService {
   @pragma('vm:entry-point')
   static void callbackDispatcher() {
     Workmanager().executeTask((task, inputData) async {
-      WidgetsFlutterBinding.ensureInitialized();
-
       if (task == "syncInspectionsTask") {
         print(' BACKGROUND Iniciando sincronización en background...');
-        final service = SyncService();
+        final service = MaintenanceSyncService();
         await service.syncPendingInspections();
         print(' BACKGROUND Sincronización completada');
         return true;

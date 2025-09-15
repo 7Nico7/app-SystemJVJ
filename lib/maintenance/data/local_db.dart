@@ -10,8 +10,8 @@ class LocalDB {
 
   // Estados posibles para las inspecciones
   static const int STATUS_DRAFT = 0;
-  static const int STATUS_PENDING = 1;
-  static const int STATUS_CONCLUDED = 2;
+  static const int STATUS_READY_FOR_SYNC = 1; // Antes STATUS_PENDING
+  static const int STATUS_CONCLUDED_OFFLINE = 2; // Antes STATUS_CONCLUDED
   static const int STATUS_SYNCED = 3;
 
   LocalDB._internal();
@@ -156,7 +156,7 @@ class LocalDB {
       'inspections',
       columns: ['local_id'],
       where: 'inspection_id = ? AND status = ?',
-      whereArgs: [inspectionId, 0],
+      whereArgs: [inspectionId, LocalDB.STATUS_DRAFT],
       limit: 1,
     );
     return result.isNotEmpty ? result.first['local_id'] as String? : null;
@@ -167,8 +167,12 @@ class LocalDB {
     final db = await database;
     return db.query(
       'inspections',
-      where: 'inspection_id = ? AND (status = 0 OR status = 1)',
-      whereArgs: [inspectionId],
+      where: 'inspection_id = ? AND (status = ? OR status = ?)',
+      whereArgs: [
+        inspectionId,
+        LocalDB.STATUS_DRAFT,
+        LocalDB.STATUS_READY_FOR_SYNC
+      ],
     );
   }
 
@@ -191,8 +195,11 @@ class LocalDB {
     final db = await database;
     return db.query(
       'inspections',
-      where: 'status = ?',
-      whereArgs: [1],
+      where: 'status = ? OR status = ?',
+      whereArgs: [
+        STATUS_READY_FOR_SYNC,
+        STATUS_CONCLUDED_OFFLINE
+      ], // Dos valores
     );
   }
 

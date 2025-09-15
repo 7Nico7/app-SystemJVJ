@@ -1,12 +1,13 @@
+import 'dart:async';
 import 'dart:typed_data';
 import 'dart:convert';
+import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/material.dart';
 import 'package:signature/signature.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:sqflite/sqflite.dart';
 import 'package:systemjvj/maintenance/data/signatureDatabaseHelper.dart';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
-import 'package:http/http.dart' as http;
+
 import 'package:systemjvj/maintenance/data/signature_sync_service.dart';
 
 class ClientSignatureForm extends StatefulWidget {
@@ -19,11 +20,16 @@ class ClientSignatureForm extends StatefulWidget {
 }
 
 class _ClientSignatureFormState extends State<ClientSignatureForm> {
+  bool _isSynced = false;
+  final SignatureSyncService _syncService = SignatureSyncService();
   int? _selectedRating;
   final SignatureController _signatureController = SignatureController(
     penStrokeWidth: 4,
     penColor: Colors.black,
   );
+  StreamSubscription<List<ConnectivityResult>>?
+      _connectivitySubscription; // Añade esta línea
+
   Uint8List? _signatureImage;
   bool _isSaved = false;
   bool _isLoading = false;
@@ -33,10 +39,43 @@ class _ClientSignatureFormState extends State<ClientSignatureForm> {
   void initState() {
     super.initState();
     _loadStoredSignature();
+    _setupConnectivityListener();
+  }
+
+  void _setupConnectivityListener() {
+    _connectivitySubscription =
+        Connectivity().onConnectivityChanged.listen((result) async {
+      // Modifica esta línea
+      if (result != ConnectivityResult.none && mounted) {
+        // Añade verificación mounted
+        print('🌐 Conexión detectada, verificando estado de firma...');
+
+        // Pequeña demora para asegurar que la conexión esté estable
+        await Future.delayed(const Duration(seconds: 2));
+
+        if (!mounted) return; // Verificar nuevamente después del delay
+
+        // Recargar el estado actual desde la base de datos
+        await _loadStoredSignature();
+
+        // Intentar sincronizar automáticamente cuando hay conexión
+        if (_isSaved && !_isSynced) {
+          print('🔄 Intentando sincronización automática...');
+          await _trySyncSignature();
+        }
+      }
+    });
+  }
+
+  Future<void> _tryAutoSync() async {
+    if (_isSaved && !_isSynced) {
+      print('Intentando sincronización automática...');
+      await _trySyncSignature();
+    }
   }
 
   Future<void> _loadStoredSignature() async {
-    if (!mounted) return; // Verificar si está montado
+    if (!mounted) return;
     setState(() => _isLoading = true);
     try {
       final db = await SignatureDatabaseHelper.instance.database;
@@ -48,10 +87,12 @@ class _ClientSignatureFormState extends State<ClientSignatureForm> {
       );
 
       if (results.isNotEmpty) {
-        if (!mounted) return; // Verificar nuevamente antes de setState
+        if (!mounted) return;
         setState(() {
           _storedData = results[0];
           _selectedRating = _storedData!['rating'] as int?;
+          // CORRECIÓN: Verificar correctamente el valor de isSynced
+          _isSynced = (_storedData!['isSynced'] as int) == 1;
 
           final signatureString = _storedData!['signature'] as String?;
           if (signatureString != null) {
@@ -60,9 +101,19 @@ class _ClientSignatureFormState extends State<ClientSignatureForm> {
 
           _isSaved = true;
         });
+      } else {
+        // Asegurarse de resetear el estado si no hay firma guardada
+        setState(() {
+          _isSaved = false;
+          _isSynced = false;
+        });
       }
     } catch (e) {
       print('Error loading signature: $e');
+      setState(() {
+        _isSaved = false;
+        _isSynced = false;
+      });
     } finally {
       if (mounted) {
         setState(() => _isLoading = false);
@@ -72,6 +123,8 @@ class _ClientSignatureFormState extends State<ClientSignatureForm> {
 
   @override
   void dispose() {
+    _connectivitySubscription
+        ?.cancel(); // Añade esta línea para cancelar la suscripción
     _signatureController.dispose();
     super.dispose();
   }
@@ -145,32 +198,37 @@ class _ClientSignatureFormState extends State<ClientSignatureForm> {
   }
 
   Future<void> _trySyncSignature() async {
+    // Verificar conectividad antes de intentar sincronizar
+    final connectivityResult = await Connectivity().checkConnectivity();
+    if (connectivityResult == ConnectivityResult.none) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Sin conexión a internet')),
+        );
+      }
+      return;
+    }
+
+    if (!mounted) return; // Verificar antes de setState
     setState(() => _isLoading = true);
+
     try {
-      final syncService = SignatureSyncService();
-      final success = await syncService.syncPendingSignatures();
+      final success = await _syncService.syncPendingSignatures();
 
       if (!mounted) return;
-      if (success) {
-        final db = await SignatureDatabaseHelper.instance.database;
-        final result = await db.query(
-          'signatures',
-          where: 'maintenanceId = ? AND isSynced = ?',
-          whereArgs: [widget.maintenanceId, 1],
-        );
 
-        if (result.isNotEmpty) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Firma sincronizada con éxito!')),
-          );
-        } else {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Firma pendiente de sincronización')),
-          );
-        }
-      } else {
+      // Recargar el estado después de la sincronización
+      await _loadStoredSignature();
+
+      if (success && _isSynced && mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Error en sincronización')),
+          const SnackBar(content: Text('Firma sincronizada con éxito!')),
+        );
+      } else if (!success && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+              content: Text(
+                  'Error en sincronización. Se reintentará automáticamente.')),
         );
       }
     } catch (e) {
@@ -183,6 +241,39 @@ class _ClientSignatureFormState extends State<ClientSignatureForm> {
       if (mounted) {
         setState(() => _isLoading = false);
       }
+    }
+  }
+
+  // Modificar la UI para reflejar el estado de sincronización
+  Widget _buildSyncStatus() {
+    if (_isSaved) {
+      return Column(
+        children: [
+          Icon(
+            _isSynced ? Icons.cloud_done : Icons.cloud_upload,
+            color: _isSynced ? Colors.green : Colors.orange,
+            size: 50,
+          ),
+          const SizedBox(height: 10),
+          Text(
+            _isSynced ? 'Firma sincronizada' : 'Firma guardada localmente',
+            style: TextStyle(
+              color: _isSynced ? Colors.green : Colors.orange,
+              fontSize: 18,
+            ),
+          ),
+          const SizedBox(height: 5),
+          Text(
+            _isSynced
+                ? 'Sincronizado con el servidor'
+                : 'Se sincronizará automáticamente cuando haya conexión',
+            style: const TextStyle(fontStyle: FontStyle.italic),
+            textAlign: TextAlign.center,
+          ),
+        ],
+      );
+    } else {
+      return const SizedBox();
     }
   }
 
@@ -330,6 +421,11 @@ class _ClientSignatureFormState extends State<ClientSignatureForm> {
                   const SizedBox(height: 30),
                   _buildSignatureArea(),
                   const SizedBox(height: 30),
+
+                  // Mostrar estado de sincronización
+                  Center(child: _buildSyncStatus()),
+                  const SizedBox(height: 20),
+
                   if (!_isSaved)
                     Center(
                       child: ElevatedButton(
@@ -342,25 +438,7 @@ class _ClientSignatureFormState extends State<ClientSignatureForm> {
                             style: TextStyle(fontSize: 18)),
                       ),
                     ),
-                  if (_isSaved) ...[
-                    const Center(
-                      child: Column(
-                        children: [
-                          Icon(Icons.check_circle,
-                              color: Colors.green, size: 50),
-                          SizedBox(height: 10),
-                          Text('Firma guardada exitosamente',
-                              style:
-                                  TextStyle(color: Colors.green, fontSize: 18)),
-                          SizedBox(height: 5),
-                          Text('Se sincronizará cuando haya conexión',
-                              style: TextStyle(fontStyle: FontStyle.italic)),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 20),
-                    Center(child: _buildSyncButton()),
-                  ],
+                  if (_isSaved && !_isSynced) Center(child: _buildSyncButton()),
                 ],
               ),
             ),

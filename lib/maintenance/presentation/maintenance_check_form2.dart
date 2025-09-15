@@ -1,4 +1,4 @@
-import 'dart:async';
+/* import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
@@ -6,7 +6,7 @@ import 'package:path/path.dart' as path_lib;
 import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
 import 'package:systemjvj/maintenance/data/local_db.dart';
-import 'package:systemjvj/maintenance/data/sync_service.dart';
+import 'package:systemjvj/maintenance/data/maintenanceSyncService.dart';
 import 'package:systemjvj/maintenance/domain/check_item.dart';
 import 'package:systemjvj/maintenance/domain/photo_item.dart';
 import 'package:systemjvj/maintenance/presentation/photo_type_dialog.dart';
@@ -1379,3 +1379,4 @@ class _MaintenanceCheckFormState extends State<MaintenanceCheckForm2> {
     );
   }
 }
+ */

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
@@ -5,183 +6,129 @@ import 'package:systemjvj/core/utils/urlBase.dart';
 import 'package:systemjvj/maintenance/data/signatureDatabaseHelper.dart';
 
 class SignatureSyncService {
-  static const String _baseUrl = BASE_URL;
   final FlutterSecureStorage _storage = const FlutterSecureStorage();
   final SignatureDatabaseHelper _dbHelper = SignatureDatabaseHelper.instance;
+  String baseUrl = BASE_URL;
 
   Future<bool> syncPendingSignatures() async {
-    print(
-        'SignatureSyncService: Iniciando sincronización de firmas pendientes.');
-    final signatures = await _dbHelper.getPendingSignatures();
-    if (signatures.isEmpty) {
-      print('SignatureSyncService: No hay firmas pendientes para sincronizar.');
-      return true;
-    }
-    print(
-        'SignatureSyncService: Se encontraron ${signatures.length} firmas pendientes.');
-
-    final token = await _storage.read(key: 'access_token');
-    if (token == null) {
-      print('SignatureSyncService: Error: Token de acceso no encontrado.');
-      return false;
-    }
-    print('SignatureSyncService: Token de acceso obtenido.');
-
-    final client = http.Client();
     try {
+      final token = await _storage.read(key: 'access_token');
+      if (token == null) {
+        print('❌ Token no encontrado para sincronización de firmas');
+        return false;
+      }
+
+      // Verificar validez del token
+/*       final isValid = await _validateToken(token);
+      if (!isValid) {
+        print('❌ Token inválido, no se pueden sincronizar firmas');
+        return false;
+      } */
+
+      // Obtener firmas pendientes
+      final pendingSignatures = await _dbHelper.getPendingSignatures();
+      print('📋 Firmas pendientes encontradas: ${pendingSignatures.length}');
+
+      if (pendingSignatures.isEmpty) {
+        return true;
+      }
+
       bool allSuccess = true;
 
-      for (var signature in signatures) {
-        print(
-            'SignatureSyncService: Procesando firma con id local: ${signature['id']}');
-        try {
-          // Asegúrate de que 'maintenanceId' es una cadena numérica
-          final maintenanceId = signature['maintenanceId'];
-          if (maintenanceId == null) {
-            print(
-                'SignatureSyncService: Error: maintenanceId es nulo para la firma ${signature['id']}');
-            allSuccess = false;
-            continue; // Salta a la siguiente firma
-          }
-
-          final int parsedMaintenanceId =
-              int.tryParse(maintenanceId as String) ??
-                  0; // Manejo seguro de la conversión
-          if (parsedMaintenanceId == 0 &&
-              (maintenanceId as String).isNotEmpty) {
-            // Si falla la conversión y no es cadena vacía
-            print(
-                'SignatureSyncService: Error: maintenanceId no es un número válido: $maintenanceId para firma ${signature['id']}');
-            allSuccess = false;
-            continue; // Salta a la siguiente firma
-          }
-
-          final String base64Signature = signature['signature'];
-          final String prefixedSignature =
-              'data:image/png;base64,$base64Signature';
-
-          final data = {
-            'id': parsedMaintenanceId, // Usar el ID parseado
-            'service_rating': signature['rating'],
-            'signature': prefixedSignature,
-          };
-          print(
-              'SignatureSyncService: Datos a enviar para la firma ${signature['id']}: $data');
-
-          final response = await client.post(
-            Uri.parse('$_baseUrl/api/maintenance/signature'),
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': 'Bearer $token',
-            },
-            body: jsonEncode(data),
-          );
-
-          if (response.statusCode == 200) {
-            print(
-                'SignatureSyncService: Firma ${signature['id']} sincronizada exitosamente.');
-            await _dbHelper.markAsSynced(signature['id'] as int);
-          } else {
-            print(
-                'SignatureSyncService: Error sincronizando firma ${signature['id']}: ${response.statusCode}');
-            print(
-                'SignatureSyncService: Response body para firma ${signature['id']}: ${response.body}');
-            allSuccess = false;
-          }
-        } catch (e) {
-          print(
-              'SignatureSyncService: Error en firma individual ${signature['id']}: $e');
+      for (var signature in pendingSignatures) {
+        final success = await _syncSingleSignature(signature, token);
+        if (!success) {
           allSuccess = false;
         }
       }
 
-      print(
-          'SignatureSyncService: Sincronización finalizada. Éxito total: $allSuccess');
       return allSuccess;
     } catch (e) {
-      print('SignatureSyncService: Error general en sincronización: $e');
+      print('❌ Error en syncPendingSignatures: $e');
       return false;
-    } finally {
-      client.close();
-      print('SignatureSyncService: Cliente HTTP cerrado.');
     }
   }
 
-  Future<bool> syncPendingTechnicianSignatures() async {
-    print(
-        'SignatureSyncService: Iniciando sincronización de firmas de técnicos.');
-    final signatures = await _dbHelper.getPendingTechnicianSignatures();
-    if (signatures.isEmpty) {
-      print('SignatureSyncService: No hay firmas de técnicos pendientes.');
-      return true;
-    }
-    print(
-        'SignatureSyncService: Se encontraron ${signatures.length} firmas de técnicos pendientes.');
-
-    final token = await _storage.read(key: 'access_token');
-    if (token == null) {
-      print('SignatureSyncService: Error: Token de acceso no encontrado.');
-      return false;
-    }
-
-    final client = http.Client();
+/* 
+  Future<bool> _validateToken(String token) async {
     try {
-      bool allSuccess = true;
+      final response = await http.get(
+        Uri.parse('$baseUrl/api/validate-token'),
+        headers: {'Authorization': 'Bearer $token'},
+      ).timeout(const Duration(seconds: 10));
 
-      for (var signature in signatures) {
-        print(
-            'SignatureSyncService: Procesando firma de técnico con id local: ${signature['id']}');
-        try {
-          final maintenanceId = signature['maintenanceId'];
-          if (maintenanceId == null) {
-            print('SignatureSyncService: Error: maintenanceId es nulo');
-            allSuccess = false;
-            continue;
-          }
-
-          final String base64Signature = signature['signature'];
-          final String prefixedSignature =
-              'data:image/png;base64,$base64Signature';
-
-          final data = {
-            'maintenance_id': int.parse(maintenanceId),
-            'technician_signature': prefixedSignature,
-          };
-          print('SignatureSyncService: Datos a enviar: $data');
-
-          final response = await client.post(
-            Uri.parse('$_baseUrl/api/maintenance/technician-signature'),
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': 'Bearer $token',
-            },
-            body: jsonEncode(data),
-          );
-
-          if (response.statusCode == 200) {
-            print(
-                'SignatureSyncService: Firma de técnico ${signature['id']} sincronizada.');
-            await _dbHelper
-                .markTechnicianSignatureAsSynced(signature['id'] as int);
-          } else {
-            print(
-                'SignatureSyncService: Error ${response.statusCode}: ${response.body}');
-            allSuccess = false;
-          }
-        } catch (e) {
-          print('SignatureSyncService: Error en firma individual: $e');
-          allSuccess = false;
-        }
-      }
-
-      print(
-          'SignatureSyncService: Sincronización de técnicos finalizada. Éxito: $allSuccess');
-      return allSuccess;
+      return response.statusCode == 200;
     } catch (e) {
-      print('SignatureSyncService: Error general: $e');
+      print('❌ Error validando token: $e');
       return false;
-    } finally {
-      client.close();
+    }
+  }
+ */
+  Future<bool> _syncSingleSignature(
+      Map<String, dynamic> signature, String token) async {
+    int maintenanceId;
+    try {
+      maintenanceId = int.parse(signature['maintenanceId'].toString());
+
+      // Obtener la firma en base64 sin prefijo
+      String signatureBase64 = signature['signature'];
+
+      // Agregar el prefijo para que el backend lo reconozca
+      String signatureWithPrefix = 'data:image/png;base64,$signatureBase64';
+
+      final response = await http
+          .post(
+            Uri.parse('$baseUrl/api/maintenance/signature'),
+            headers: {
+              'Authorization': 'Bearer $token',
+              'Content-Type': 'application/json',
+            },
+            body: jsonEncode({
+              'id': maintenanceId,
+              'service_rating': signature['rating'],
+              'signature': signatureWithPrefix, // Enviamos con prefijo
+            }),
+          )
+          .timeout(const Duration(seconds: 30));
+
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        // Marcar como sincronizado en la base de datos local
+        await _dbHelper.markAsSynced(signature['id']);
+        print('[SYNC] Respuesta: ${response.statusCode} - ${response.body}');
+
+        print(
+            '✅ Firma ${signature['maintenanceId']} sincronizada exitosamente');
+        return true;
+      } else {
+        print('❌ Error del servidor: ${response.statusCode}');
+        print('❌ Respuesta: ${response.body}');
+        return false;
+      }
+    } on http.ClientException catch (e) {
+      print('❌ Error de conexión: $e');
+      return false;
+    } on TimeoutException catch (e) {
+      print('❌ Timeout sincronizando firma: $e');
+      return false;
+    } catch (e) {
+      print('❌ Error sincronizando firma ${signature['maintenanceId']}: $e');
+      return false;
+    }
+  }
+
+  // Método para verificar el estado de sincronización de una firma específica
+  Future<bool> isSignatureSynced(String maintenanceId) async {
+    try {
+      final db = await _dbHelper.database;
+      final result = await db.query(
+        'signatures',
+        where: 'maintenanceId = ? AND isSynced = ?',
+        whereArgs: [maintenanceId, 1],
+      );
+      return result.isNotEmpty;
+    } catch (e) {
+      print('❌ Error verificando estado de firma: $e');
+      return false;
     }
   }
 }

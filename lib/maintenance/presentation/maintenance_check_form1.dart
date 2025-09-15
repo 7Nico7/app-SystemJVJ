@@ -3,12 +3,12 @@ import 'dart:io';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:intl/intl.dart';
+
 import 'package:path/path.dart' as path_lib;
 import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
 import 'package:systemjvj/maintenance/data/local_db.dart';
-import 'package:systemjvj/maintenance/data/sync_service.dart';
+import 'package:systemjvj/maintenance/data/maintenanceSyncService.dart';
 import 'package:systemjvj/maintenance/domain/check_item.dart';
 import 'package:systemjvj/maintenance/domain/photo_item.dart';
 import 'package:systemjvj/maintenance/domain/recommendation.dart';
@@ -32,7 +32,8 @@ class _MaintenanceCheckFormState extends State<MaintenanceCheckForm1>
     with SingleTickerProviderStateMixin {
   final _formKey = GlobalKey<FormState>();
   final LocalDB localDB = LocalDB();
-  late SyncService syncService;
+  late MaintenanceSyncService syncService;
+
   late String _localInspectionId;
   bool _isOnline = true;
   bool _isLoading = true;
@@ -138,7 +139,10 @@ class _MaintenanceCheckFormState extends State<MaintenanceCheckForm1>
     _commentController = TextEditingController();
     _otherServiceController = TextEditingController();
     _preventiveServiceController = TextEditingController();
-    syncService = SyncService();
+    syncService = MaintenanceSyncService();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _registerBackgroundSync();
+    });
 
     // Inicializar el controlador de pestañas
     _tabController = TabController(
@@ -163,8 +167,17 @@ class _MaintenanceCheckFormState extends State<MaintenanceCheckForm1>
         _retryAddressLookups();
       }
     });
-
+    //MaintenanceSyncService.registerBackgroundSync();
     _initializeApp();
+  }
+
+  void _registerBackgroundSync() {
+    try {
+      MaintenanceSyncService.registerBackgroundSync();
+      print('✅ Sincronización en segundo plano registrada');
+    } catch (e) {
+      print('❌ Error al registrar sincronización en segundo plano: $e');
+    }
   }
 
   void _handleTabSelection() {
@@ -301,7 +314,7 @@ class _MaintenanceCheckFormState extends State<MaintenanceCheckForm1>
 
     // Validar checks: si el status no es 1, debe tener comentario y foto
     for (var checkItem in _checkItems) {
-      if (checkItem.status != 1) {
+      if (checkItem.status > 1) {
         if (checkItem.comment == null || checkItem.comment!.isEmpty) {
           isValid = false;
           ScaffoldMessenger.of(context).showSnackBar(
@@ -468,7 +481,7 @@ class _MaintenanceCheckFormState extends State<MaintenanceCheckForm1>
       builder: (context) => const Center(child: CircularProgressIndicator()),
     );
 
-    await _saveInBackground(LocalDB.STATUS_CONCLUDED);
+    await _saveInBackground(LocalDB.STATUS_CONCLUDED_OFFLINE);
 
     if (mounted) {
       setState(() {
@@ -612,7 +625,7 @@ class _MaintenanceCheckFormState extends State<MaintenanceCheckForm1>
       );
 
       // Si el estado es concluido, actualizar la actividad local
-      if (status == LocalDB.STATUS_CONCLUDED) {
+      if (status == LocalDB.STATUS_CONCLUDED_OFFLINE) {
         try {
           final dbHelper = DatabaseHelper.instance;
           await dbHelper.updateActivityInspectionStatus(
@@ -656,7 +669,7 @@ class _MaintenanceCheckFormState extends State<MaintenanceCheckForm1>
       final status = inspection['status'] as int;
       if (mounted) {
         setState(() {
-          _isEditable = status != LocalDB.STATUS_CONCLUDED &&
+          _isEditable = status != LocalDB.STATUS_CONCLUDED_OFFLINE &&
               status != LocalDB.STATUS_SYNCED;
         });
       }
@@ -1495,7 +1508,7 @@ class _MaintenanceCheckFormState extends State<MaintenanceCheckForm1>
                 ),
               ),
             ], */
-            if (item.status != 1) ...[
+            if (item.status > 1) ...[
               const SizedBox(height: 12),
               TextFormField(
                 controller:
