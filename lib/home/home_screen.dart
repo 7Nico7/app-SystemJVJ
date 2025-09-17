@@ -29,7 +29,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
     // Lista de pantallas
     final List<Widget> _screens = [
-      ScheduleScreen(),
+      ScheduleScreen(authService: authService),
       const SearchScreen(),
       const ServicioScreen(),
     ];
@@ -55,6 +55,7 @@ class _HomeScreenState extends State<HomeScreen> {
         userName: currentUser?.username ?? 'Usuario',
         userEmail: '', //currentUser?.email ?? 'email@ejemplo.com',
         avatarPath: 'assets/avatar.png',
+        //authService: authService,
         onNavigationItemSelected: (index) {
           setState(() {
             _currentIndex = index;

@@ -8,7 +8,7 @@
     </base-config>
     <domain-config cleartextTrafficPermitted="true">
         <domain includeSubdomains="true">172.16.2.199</domain>
-        <domain includeSubdomains="true">https://apptechnology.xntech.com.mx/public/</domain>
-        <domain includeSubdomains="true">https://appjcb.azteca-site.org/</domain>
+        <domain includeSubdomains="true">apptechnology.xntech.com.mx</domain>
+        <domain includeSubdomains="true">appjcb.azteca-site.org</domain>
     </domain-config>
 </network-security-config>

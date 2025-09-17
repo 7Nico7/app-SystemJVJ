@@ -7,6 +7,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:path/path.dart' as path_lib;
 import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
+import 'package:systemjvj/features/auth/data/auth_service.dart';
 import 'package:systemjvj/maintenance/data/local_db.dart';
 import 'package:systemjvj/maintenance/data/maintenanceSyncService.dart';
 import 'package:systemjvj/maintenance/domain/check_item.dart';
@@ -20,8 +21,9 @@ import 'package:uuid/uuid.dart';
 
 class MaintenanceCheckForm1 extends StatefulWidget {
   final int inspectionId;
-
-  const MaintenanceCheckForm1({Key? key, required this.inspectionId})
+  final AuthService authService;
+  const MaintenanceCheckForm1(
+      {Key? key, required this.inspectionId, required this.authService})
       : super(key: key);
 
   @override
@@ -78,6 +80,8 @@ class _MaintenanceCheckFormState extends State<MaintenanceCheckForm1>
   final TextEditingController _recommendationController =
       TextEditingController();
   String? _editingRecommendationId;
+  bool _hasUnsavedChanges = false;
+  bool _isSaving = false;
 
   final List<Map<String, dynamic>> maintenanceItems = [
     {"id": 1, "name": "CUCHILLAS DELANTERAS"},
@@ -139,7 +143,7 @@ class _MaintenanceCheckFormState extends State<MaintenanceCheckForm1>
     _commentController = TextEditingController();
     _otherServiceController = TextEditingController();
     _preventiveServiceController = TextEditingController();
-    syncService = MaintenanceSyncService();
+    syncService = MaintenanceSyncService(authService: widget.authService);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _registerBackgroundSync();
     });
@@ -167,8 +171,58 @@ class _MaintenanceCheckFormState extends State<MaintenanceCheckForm1>
         _retryAddressLookups();
       }
     });
+
+    _transportUnitController.addListener(_markAsUnsaved);
+    _horometerController.addListener(_markAsUnsaved);
+    _mileageController.addListener(_markAsUnsaved);
+    _commentController.addListener(_markAsUnsaved);
+    _otherServiceController.addListener(_markAsUnsaved);
+    _preventiveServiceController.addListener(_markAsUnsaved);
     //MaintenanceSyncService.registerBackgroundSync();
     _initializeApp();
+  }
+
+  void _markAsUnsaved() {
+    if (!_hasUnsavedChanges) {
+      setState(() {
+        _hasUnsavedChanges = true;
+      });
+    }
+  }
+
+  // Método para verificar si hay cambios sin guardar
+  Future<bool> _onWillPop() async {
+    if (!_hasUnsavedChanges || !_isEditable) return true;
+
+    return await showDialog(
+          context: context,
+          barrierDismissible: false,
+          builder: (context) => AlertDialog(
+            title: Text('¿Salir sin guardar?'),
+            content: Text(
+                'Tienes cambios sin guardar. ¿Deseas guardar un borrador antes de salir?'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(false),
+                child: Text('Cancelar'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(true),
+                child: Text('Salir sin guardar'),
+              ),
+              TextButton(
+                onPressed: () async {
+                  setState(() => _isSaving = true);
+                  await _saveDraft();
+                  setState(() => _isSaving = false);
+                  Navigator.of(context).pop(true);
+                },
+                child: Text('Guardar borrador'),
+              ),
+            ],
+          ),
+        ) ??
+        false;
   }
 
   void _registerBackgroundSync() {
@@ -358,6 +412,7 @@ class _MaintenanceCheckFormState extends State<MaintenanceCheckForm1>
     }
 
     if (!isValid) return;
+    setState(() => _isSaving = true);
 
     showDialog(
       context: context,
@@ -372,6 +427,11 @@ class _MaintenanceCheckFormState extends State<MaintenanceCheckForm1>
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Borrador guardado exitosamente')),
       );
+
+      setState(() {
+        _hasUnsavedChanges = false;
+        _isSaving = false;
+      });
     }
   }
 
@@ -475,6 +535,8 @@ class _MaintenanceCheckFormState extends State<MaintenanceCheckForm1>
 
     if (!isValid) return;
 
+    setState(() => _isSaving = true);
+
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -486,6 +548,8 @@ class _MaintenanceCheckFormState extends State<MaintenanceCheckForm1>
     if (mounted) {
       setState(() {
         _isEditable = false;
+        _hasUnsavedChanges = false;
+        _isSaving = false;
       });
       Navigator.pop(context);
     }
@@ -2095,207 +2159,237 @@ class _MaintenanceCheckFormState extends State<MaintenanceCheckForm1>
       );
     }
 
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Formulario de Mantenimiento'),
-        bottom: _buildTabBar(),
-        actions: [
-          // Indicador de carga global para operaciones de cámara
-          if (_isTakingPhoto || _isProcessingImage)
-            const Padding(
-              padding: EdgeInsets.all(8.0),
-              child: Center(
-                child: SizedBox(
-                  width: 16,
-                  height: 16,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2,
-                    valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                  ),
-                ),
-              ),
-            ),
-          IconButton(
-            icon: Icon(_isOnline ? Icons.cloud_done : Icons.cloud_off),
+    return WillPopScope(
+      onWillPop: _onWillPop,
+      child: Scaffold(
+        appBar: AppBar(
+          title: const Text('Formulario de Mantenimiento'),
+          leading: IconButton(
+            icon: Icon(Icons.arrow_back),
             onPressed: () async {
-              await _checkConnectivity();
-              if (mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                      content: Text(_isOnline
-                          ? 'Ahora estás en línea'
-                          : 'Modo offline activado')),
-                );
+              if (await _onWillPop()) {
+                Navigator.of(context).pop();
               }
             },
-            tooltip: _isOnline ? 'En línea' : 'Sin conexión',
           ),
-        ],
-      ),
-      body: Stack(
-        children: [
-          GestureDetector(
-            onHorizontalDragEnd: (details) {
-              // Detectar deslizamiento rápido para cambiar de página
-              if (details.primaryVelocity! > 100) {
-                // Deslizamiento rápido a la izquierda
-                if (_currentTabIndex > 0) {
-                  _tabController.animateTo(_currentTabIndex - 1);
-                }
-              } else if (details.primaryVelocity! < -100) {
-                // Deslizamiento rápido a la derecha
-                if (_currentTabIndex < 3) {
-                  _tabController.animateTo(_currentTabIndex + 1);
-                }
-              }
-            },
-            child: PageView(
-              controller: _pageController,
-              onPageChanged: (index) {
-                _tabController.animateTo(index);
-                setState(() {
-                  _currentTabIndex = index;
-                });
-              },
-              // Física personalizada para un deslizamiento más sensible
-              physics: const BouncingScrollPhysics(
-                parent: AlwaysScrollableScrollPhysics(),
-              ),
-              children: [
-                // Contenido de la pestaña Información General
-                SingleChildScrollView(
-                  controller: _generalScrollController,
-                  padding: const EdgeInsets.all(16.0),
-                  child: Column(
-                    children: [
-                      _buildSectionHeader(
-                        key: _sectionKeys['general']!,
-                        title: 'Información General',
-                        icon: Icons.info,
-                      ),
-                      AbsorbPointer(
-                        absorbing: !_isEditable,
-                        child: Opacity(
-                          opacity: _isEditable ? 1.0 : 0.6,
-                          child: _buildGeneralSection(),
-                        ),
-                      ),
-                      const SizedBox(height: 32),
-                    ],
-                  ),
-                ),
-
-                // Contenido de la pestaña Checks de Mantenimiento
-                SingleChildScrollView(
-                  controller: _checksScrollController,
-                  padding: const EdgeInsets.all(16.0),
-                  child: Column(
-                    children: [
-                      _buildSectionHeader(
-                        key: _sectionKeys['checks']!,
-                        title: 'Checks de Mantenimiento',
-                        icon: Icons.checklist,
-                      ),
-                      AbsorbPointer(
-                        absorbing: !_isEditable,
-                        child: Opacity(
-                          opacity: _isEditable ? 1.0 : 0.6,
-                          child: _buildMaintenanceChecksSection(),
-                        ),
-                      ),
-                      const SizedBox(height: 32),
-                    ],
-                  ),
-                ),
-
-                // Contenido de la pestaña Fotos
-                SingleChildScrollView(
-                  controller: _photosScrollController,
-                  padding: const EdgeInsets.all(16.0),
-                  child: Column(
-                    children: [
-                      _buildSectionHeader(
-                        key: _sectionKeys['photos']!,
-                        title: 'Fotos',
-                        icon: Icons.photo_library,
-                      ),
-                      AbsorbPointer(
-                        absorbing: !_isEditable,
-                        child: Opacity(
-                          opacity: _isEditable ? 1.0 : 0.6,
-                          child: _buildPhotosSection(),
-                        ),
-                      ),
-                      const SizedBox(height: 32),
-                    ],
-                  ),
-                ),
-
-                // Contenido de la pestaña Recomendaciones
-                SingleChildScrollView(
-                  controller: _recommendationsScrollController,
-                  padding: const EdgeInsets.all(16.0),
-                  child: Column(
-                    children: [
-                      _buildSectionHeader(
-                        key: _sectionKeys['recommendations']!,
-                        title: 'Recomendaciones',
-                        icon: Icons.recommend,
-                      ),
-                      AbsorbPointer(
-                        absorbing: !_isEditable,
-                        child: Opacity(
-                          opacity: _isEditable ? 1.0 : 0.6,
-                          child: _buildRecommendationsSection(),
-                        ),
-                      ),
-                      const SizedBox(height: 32),
-
-                      // Botones de acción en la última pestaña
-                      if (_isEditable) _buildActionButtons(),
-                      if (!_isEditable)
-                        Center(
-                          child: Padding(
-                            padding: const EdgeInsets.all(16.0),
-                            child: Text(
-                              _isOnline
-                                  ? 'Sincronizando...'
-                                  : 'Esperando conexión',
-                              style: TextStyle(
-                                  fontSize: 18,
-                                  color: Theme.of(context).primaryColor,
-                                  fontWeight: FontWeight.bold),
-                            ),
-                          ),
-                        ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-
-          // Overlay para bloquear la interfaz durante operaciones de cámara
-          if (_isTakingPhoto || _isProcessingImage)
-            Container(
-              color: Colors.black.withOpacity(0.5),
-              child: const Center(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    CircularProgressIndicator(
+          bottom: _buildTabBar(),
+          actions: [
+            // Indicador de carga global para operaciones de cámara
+            if (_isTakingPhoto || _isProcessingImage)
+              const Padding(
+                padding: EdgeInsets.all(8.0),
+                child: Center(
+                  child: SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
                       valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
                     ),
-                    SizedBox(height: 16),
-                    Text(
-                      'Procesando imagen...',
-                      style: TextStyle(color: Colors.white, fontSize: 16),
-                    ),
-                  ],
+                  ),
                 ),
               ),
+            IconButton(
+              icon: Icon(_isOnline ? Icons.cloud_done : Icons.cloud_off),
+              onPressed: () async {
+                await _checkConnectivity();
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                        content: Text(_isOnline
+                            ? 'Ahora estás en línea'
+                            : 'Modo offline activado')),
+                  );
+                }
+              },
+              tooltip: _isOnline ? 'En línea' : 'Sin conexión',
             ),
-        ],
+          ],
+        ),
+        body: Stack(
+          children: [
+            GestureDetector(
+              onHorizontalDragEnd: (details) {
+                // Detectar deslizamiento rápido para cambiar de página
+                if (details.primaryVelocity! > 100) {
+                  // Deslizamiento rápido a la izquierda
+                  if (_currentTabIndex > 0) {
+                    _tabController.animateTo(_currentTabIndex - 1);
+                  }
+                } else if (details.primaryVelocity! < -100) {
+                  // Deslizamiento rápido a la derecha
+                  if (_currentTabIndex < 3) {
+                    _tabController.animateTo(_currentTabIndex + 1);
+                  }
+                }
+              },
+              child: PageView(
+                controller: _pageController,
+                onPageChanged: (index) {
+                  _tabController.animateTo(index);
+                  setState(() {
+                    _currentTabIndex = index;
+                  });
+                },
+                // Física personalizada para un deslizamiento más sensible
+                physics: const BouncingScrollPhysics(
+                  parent: AlwaysScrollableScrollPhysics(),
+                ),
+                children: [
+                  // Contenido de la pestaña Información General
+                  SingleChildScrollView(
+                    controller: _generalScrollController,
+                    padding: const EdgeInsets.all(16.0),
+                    child: Column(
+                      children: [
+                        _buildSectionHeader(
+                          key: _sectionKeys['general']!,
+                          title: 'Información General',
+                          icon: Icons.info,
+                        ),
+                        AbsorbPointer(
+                          absorbing: !_isEditable,
+                          child: Opacity(
+                            opacity: _isEditable ? 1.0 : 0.6,
+                            child: _buildGeneralSection(),
+                          ),
+                        ),
+                        const SizedBox(height: 32),
+                      ],
+                    ),
+                  ),
+
+                  // Contenido de la pestaña Checks de Mantenimiento
+                  SingleChildScrollView(
+                    controller: _checksScrollController,
+                    padding: const EdgeInsets.all(16.0),
+                    child: Column(
+                      children: [
+                        _buildSectionHeader(
+                          key: _sectionKeys['checks']!,
+                          title: 'Checks de Mantenimiento',
+                          icon: Icons.checklist,
+                        ),
+                        AbsorbPointer(
+                          absorbing: !_isEditable,
+                          child: Opacity(
+                            opacity: _isEditable ? 1.0 : 0.6,
+                            child: _buildMaintenanceChecksSection(),
+                          ),
+                        ),
+                        const SizedBox(height: 32),
+                      ],
+                    ),
+                  ),
+
+                  // Contenido de la pestaña Fotos
+                  SingleChildScrollView(
+                    controller: _photosScrollController,
+                    padding: const EdgeInsets.all(16.0),
+                    child: Column(
+                      children: [
+                        _buildSectionHeader(
+                          key: _sectionKeys['photos']!,
+                          title: 'Fotos',
+                          icon: Icons.photo_library,
+                        ),
+                        AbsorbPointer(
+                          absorbing: !_isEditable,
+                          child: Opacity(
+                            opacity: _isEditable ? 1.0 : 0.6,
+                            child: _buildPhotosSection(),
+                          ),
+                        ),
+                        const SizedBox(height: 32),
+                      ],
+                    ),
+                  ),
+
+                  // Contenido de la pestaña Recomendaciones
+                  SingleChildScrollView(
+                    controller: _recommendationsScrollController,
+                    padding: const EdgeInsets.all(16.0),
+                    child: Column(
+                      children: [
+                        _buildSectionHeader(
+                          key: _sectionKeys['recommendations']!,
+                          title: 'Recomendaciones',
+                          icon: Icons.recommend,
+                        ),
+                        AbsorbPointer(
+                          absorbing: !_isEditable,
+                          child: Opacity(
+                            opacity: _isEditable ? 1.0 : 0.6,
+                            child: _buildRecommendationsSection(),
+                          ),
+                        ),
+                        const SizedBox(height: 32),
+
+                        // Botones de acción en la última pestaña
+                        if (_isEditable) _buildActionButtons(),
+                        if (!_isEditable)
+                          Center(
+                            child: Padding(
+                              padding: const EdgeInsets.all(16.0),
+                              child: Text(
+                                _isOnline
+                                    ? 'Sincronizando...'
+                                    : 'Esperando conexión',
+                                style: TextStyle(
+                                    fontSize: 18,
+                                    color: Theme.of(context).primaryColor,
+                                    fontWeight: FontWeight.bold),
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+            // Overlay para bloquear la interfaz durante operaciones de cámara
+/*             if (_isTakingPhoto || _isProcessingImage)
+              Container(
+                color: Colors.black.withOpacity(0.5),
+                child: const Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      CircularProgressIndicator(
+                        valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                      ),
+                      SizedBox(height: 16),
+                      Text(
+                        'Procesando imagen...',
+                        style: TextStyle(color: Colors.white, fontSize: 16),
+                      ),
+                    ],
+                  ),
+                ),
+              ), */
+            if (_isSaving)
+              Container(
+                color: Colors.black.withOpacity(0.5),
+                child: Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      CircularProgressIndicator(
+                        valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                      ),
+                      SizedBox(height: 16),
+                      Text(
+                        'Guardando...',
+                        style: TextStyle(color: Colors.white, fontSize: 16),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+          ],
+        ),
       ),
     );
   }

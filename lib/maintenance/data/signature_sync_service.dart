@@ -1,18 +1,29 @@
 import 'dart:async';
 import 'dart:convert';
+import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:http/http.dart' as http;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:systemjvj/core/utils/urlBase.dart';
+import 'package:systemjvj/features/auth/data/auth_service.dart';
+import 'package:systemjvj/maintenance/data/local_db.dart';
+import 'package:systemjvj/maintenance/data/maintenanceSyncService.dart';
 import 'package:systemjvj/maintenance/data/signatureDatabaseHelper.dart';
 
 class SignatureSyncService {
   final FlutterSecureStorage _storage = const FlutterSecureStorage();
   final SignatureDatabaseHelper _dbHelper = SignatureDatabaseHelper.instance;
   String baseUrl = BASE_URL;
+  final AuthService authService;
+
+  SignatureSyncService({
+    required this.authService,
+  });
 
   Future<bool> syncPendingSignatures() async {
     try {
-      final token = await _storage.read(key: 'access_token');
+      final user = authService.currentUser;
+      final token = user?.token;
       if (token == null) {
         print('❌ Token no encontrado para sincronización de firmas');
         return false;

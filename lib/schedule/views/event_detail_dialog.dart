@@ -1,6 +1,7 @@
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:systemjvj/features/auth/data/auth_service.dart';
 import 'package:systemjvj/maintenance/data/signatureDatabaseHelper.dart';
 import 'package:systemjvj/maintenance/presentation/clientSignatureForm.dart';
 
@@ -14,9 +15,13 @@ import 'package:systemjvj/schedule/services/syncService.dart';
 class EventDetailDialog extends StatefulWidget {
   final Activity activity;
   final ScheduleProvider provider;
+  final AuthService authService;
 
   const EventDetailDialog(
-      {Key? key, required this.activity, required this.provider})
+      {Key? key,
+      required this.activity,
+      required this.provider,
+      required this.authService})
       : super(key: key);
 
   @override
@@ -178,16 +183,29 @@ class _EventDetailDialogState extends State<EventDetailDialog> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             _buildDetailRow('FOLIO:', '${activity.title}'),
-            _buildDetailRow('DESCRIPCIÓN:', activity.description),
+            _buildDetailRow('DESCRIPCIÓN:', activity.description!),
             _buildDetailRow('SERVICIO:',
                 activity.serviceScope == 2 ? "EXTERNO" : "INTERNO"),
             _buildDetailRow('FECHA:', '${_formatDate(activity.start)}'),
             _buildDetailRow('HORA:',
                 '${_formatTime(activity.start)} - ${_formatTime(activity.end)}'),
-            _buildDetailRow('UBICACIÓN:', activity.location),
-            _buildDetailRow('CLIENTE:', activity.client),
-            _buildDetailRow('TÉCNICO:', activity.technical),
-            _buildDetailRow('EQUIPO:', activity.equipment),
+            _buildDetailRow(
+                'UBICACIÓN:',
+                activity.location != null
+                    ? activity.location!
+                    : "Sin ubicación"),
+            _buildDetailRow('CLIENTE:',
+                activity.client != null ? activity.client! : "Sin cliente"),
+            _buildDetailRow(
+                'TÉCNICO:',
+                activity.technical != null
+                    ? activity.technical!
+                    : "Sin técnico"),
+            _buildDetailRow(
+                'EQUIPO:',
+                activity.equipment != null
+                    ? activity.equipment!
+                    : "Sin equipo"),
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -263,7 +281,8 @@ class _EventDetailDialogState extends State<EventDetailDialog> {
           (!hasPendingBaseIn && !hasSyncedBaseIn) &&
           (effectiveStatus == 4 || effectiveStatus == 5))
         TextButton(
-          onPressed: () => _navigateToInspection1(context, activity),
+          onPressed: () =>
+              _navigateToInspection1(context, activity, widget.authService),
           child: Text('Inspeccionar equipo'),
         ),
       if (!hasSigned && (isInspectionConcluded || hasTransportUnit))
@@ -346,13 +365,15 @@ class _EventDetailDialogState extends State<EventDetailDialog> {
     }
   }
 
-  void _navigateToInspection1(BuildContext context, Activity activity) {
+  void _navigateToInspection1(
+      BuildContext context, Activity activity, AuthService authService) {
     Navigator.pop(context);
     Navigator.push(
       context,
       MaterialPageRoute(
         builder: (context) => MaintenanceCheckForm1(
           inspectionId: activity.inspectionId!,
+          authService: authService,
         ),
       ),
     );
@@ -364,8 +385,8 @@ class _EventDetailDialogState extends State<EventDetailDialog> {
       context,
       MaterialPageRoute(
         builder: (context) => ClientSignatureForm(
-          maintenanceId: activity.maintenanceId!.toString(),
-        ),
+            maintenanceId: activity.maintenanceId!.toString(),
+            authService: widget.authService),
       ),
     );
   }
@@ -422,7 +443,7 @@ class _EventDetailDialogState extends State<EventDetailDialog> {
         bgColor = Colors.green;
         break;
       default:
-        bgColor = Colors.grey;
+        bgColor = Colors.red;
     }
 
     return Container(

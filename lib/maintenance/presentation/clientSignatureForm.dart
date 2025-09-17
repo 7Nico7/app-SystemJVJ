@@ -6,14 +6,16 @@ import 'package:flutter/material.dart';
 import 'package:signature/signature.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:sqflite/sqflite.dart';
+import 'package:systemjvj/features/auth/data/auth_service.dart';
 import 'package:systemjvj/maintenance/data/signatureDatabaseHelper.dart';
 
 import 'package:systemjvj/maintenance/data/signature_sync_service.dart';
 
 class ClientSignatureForm extends StatefulWidget {
   final String maintenanceId;
-
-  const ClientSignatureForm({super.key, required this.maintenanceId});
+  final AuthService authService;
+  const ClientSignatureForm(
+      {super.key, required this.maintenanceId, required this.authService});
 
   @override
   _ClientSignatureFormState createState() => _ClientSignatureFormState();
@@ -21,7 +23,7 @@ class ClientSignatureForm extends StatefulWidget {
 
 class _ClientSignatureFormState extends State<ClientSignatureForm> {
   bool _isSynced = false;
-  final SignatureSyncService _syncService = SignatureSyncService();
+  late SignatureSyncService _syncService;
   int? _selectedRating;
   final SignatureController _signatureController = SignatureController(
     penStrokeWidth: 4,
@@ -40,6 +42,7 @@ class _ClientSignatureFormState extends State<ClientSignatureForm> {
     super.initState();
     _loadStoredSignature();
     _setupConnectivityListener();
+    _syncService = SignatureSyncService(authService: widget.authService);
   }
 
   void _setupConnectivityListener() {

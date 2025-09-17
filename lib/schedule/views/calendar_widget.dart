@@ -2,12 +2,16 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:syncfusion_flutter_calendar/calendar.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
+import 'package:systemjvj/features/auth/data/auth_service.dart';
 import 'package:systemjvj/schedule/models/activity_model.dart';
 import 'package:systemjvj/schedule/providers/schedule_provider.dart';
 import 'package:systemjvj/schedule/services/offlineService.dart';
 import 'package:systemjvj/schedule/views/event_detail_dialog.dart';
 
 class CalendarWidget extends StatefulWidget {
+  final AuthService authService;
+  const CalendarWidget({super.key, required this.authService});
+
   @override
   _CalendarWidgetState createState() => _CalendarWidgetState();
 }
@@ -335,7 +339,7 @@ class _CalendarWidgetState extends State<CalendarWidget> {
                 ),
               ] else if (isShortEvent) ...[
                 Text(
-                  activity.folio,
+                  activity.folio!,
                   style: TextStyle(
                     fontWeight: FontWeight.bold,
                     fontSize: 8,
@@ -363,7 +367,7 @@ class _CalendarWidgetState extends State<CalendarWidget> {
                     SizedBox(width: 2),
                     Expanded(
                       child: Text(
-                        activity.folio,
+                        activity.folio!,
                         style: TextStyle(
                           fontWeight: FontWeight.bold,
                           fontSize: 9,
@@ -378,14 +382,14 @@ class _CalendarWidgetState extends State<CalendarWidget> {
                 ),
                 SizedBox(height: 1),
                 Text(
-                  '${_formatTime(activity.start)}',
+                  '${_formatTime(activity.start!)}',
                   style: TextStyle(fontSize: 8, height: 1.0),
                 ),
                 if (isAdmin)
                   SizedBox(
                     height: 12,
                     child: Text(
-                      activity.technical.split(' ').take(1).join(' '),
+                      activity.technical!.split(' ').take(1).join(' '),
                       style: TextStyle(
                         fontSize: 7,
                         fontWeight: FontWeight.w500,
@@ -432,7 +436,7 @@ class _CalendarWidgetState extends State<CalendarWidget> {
         ),
       ),
       title: Text(
-        activity.folio,
+        activity.folio!,
         style: TextStyle(fontWeight: FontWeight.bold),
       ),
       subtitle: Column(
@@ -443,7 +447,7 @@ class _CalendarWidgetState extends State<CalendarWidget> {
             style: TextStyle(fontSize: 12),
           ),
           Text(
-            activity.technical,
+            activity.technical!,
             style: TextStyle(fontSize: 12),
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
@@ -462,7 +466,7 @@ class _CalendarWidgetState extends State<CalendarWidget> {
     final map = <String, List<Activity>>{};
     for (final activity in activities) {
       final techId = activity.technical;
-      map.putIfAbsent(techId, () => []).add(activity);
+      map.putIfAbsent(techId!, () => []).add(activity);
     }
     return map;
   }
@@ -479,6 +483,7 @@ class _CalendarWidgetState extends State<CalendarWidget> {
       builder: (context) => EventDetailDialog(
         activity: updatedActivity,
         provider: provider,
+        authService: widget.authService,
       ),
     );
   }

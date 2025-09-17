@@ -3,8 +3,10 @@ import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:dio/dio.dart';
 
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:systemjvj/core/utils/urlBase.dart';
+import 'package:systemjvj/features/auth/data/auth_service.dart';
 
 import 'package:systemjvj/schedule/repository/databaseHelper.dart';
 import 'package:workmanager/workmanager.dart';
@@ -14,7 +16,12 @@ class MaintenanceSyncService {
   final Dio dio = Dio();
   final LocalDB localDB = LocalDB();
   final FlutterSecureStorage storage = const FlutterSecureStorage();
+  final AuthService authService;
   String baseUrl = BASE_URL;
+
+  MaintenanceSyncService({
+    required this.authService,
+  });
 
   Future<bool> checkConnectivity() async {
     var connectivityResult = await Connectivity().checkConnectivity();
@@ -24,7 +31,8 @@ class MaintenanceSyncService {
   Future<bool> syncInspection(String localId) async {
     try {
       // 1. Obtener token de autenticación
-      final token = await storage.read(key: 'access_token');
+      final user = authService.currentUser;
+      final token = user?.token;
       if (token == null) {
         print(' SYNC Token de autenticación no encontrado');
         return false;
@@ -339,12 +347,65 @@ class MaintenanceSyncService {
     );
   }
 
+  static Future<void> syncPendingInspectionsBackground() async {
+    try {
+      print('[BACKGROUND SYNC] Iniciando sincronización de inspecciones...');
+
+      // Inicializar dependencias manualmente para background
+      final sharedPreferences = await SharedPreferences.getInstance();
+      final localDB = LocalDB();
+      final authService = AuthService();
+
+      // Cargar el token desde SharedPreferences
+      final token = sharedPreferences.getString('auth_token');
+      if (token != null) {
+        authService.setToken(token);
+      }
+
+      final syncService = MaintenanceSyncService(authService: authService);
+
+      // Verificar conectividad
+      final connectivity = Connectivity();
+      final connectivityResult = await connectivity.checkConnectivity();
+      if (connectivityResult == ConnectivityResult.none) {
+        print('[BACKGROUND SYNC] Sin conexión, abortando sincronización');
+        return;
+      }
+
+      // Sincronizar inspecciones pendientes
+      final pending = await localDB.getPendingInspections();
+      print(
+          '[BACKGROUND SYNC] ${pending.length} inspecciones pendientes encontradas');
+
+      for (var inspection in pending) {
+        try {
+          final localId = inspection['local_id'] as String;
+          print('[BACKGROUND SYNC] Sincronizando inspección: $localId');
+          final success = await syncService.syncInspection(localId);
+
+          if (success) {
+            print(
+                '[BACKGROUND SYNC] Inspección $localId sincronizada con éxito');
+          } else {
+            print('[BACKGROUND SYNC] Falló sincronización de $localId');
+          }
+        } catch (e) {
+          print('[BACKGROUND SYNC] Error sincronizando inspección: $e');
+        }
+      }
+
+      print('[BACKGROUND SYNC] Sincronización de inspecciones completada');
+    } catch (e) {
+      print('[BACKGROUND SYNC] Error en sincronización de inspecciones: $e');
+    }
+  }
+
   @pragma('vm:entry-point')
-  static void callbackDispatcher() {
+  static void callbackDispatcher(AuthService authService) {
     Workmanager().executeTask((task, inputData) async {
       if (task == "syncInspectionsTask") {
         print(' BACKGROUND Iniciando sincronización en background...');
-        final service = MaintenanceSyncService();
+        final service = MaintenanceSyncService(authService: authService);
         await service.syncPendingInspections();
         print(' BACKGROUND Sincronización completada');
         return true;

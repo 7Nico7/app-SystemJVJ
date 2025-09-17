@@ -163,8 +163,8 @@ class ScheduleProvider with ChangeNotifier {
 
   void _updateTechnicianNames() {
     for (final activity in _activities) {
-      if (activity.technical.isNotEmpty) {
-        _technicianNames[activity.technical] = activity.technical;
+      if (activity.technical!.isNotEmpty) {
+        _technicianNames[activity.technical!] = activity.technical!;
       }
     }
   }

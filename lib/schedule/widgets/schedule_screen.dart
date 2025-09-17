@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:systemjvj/features/auth/data/auth_service.dart';
 
 import 'package:systemjvj/schedule/providers/schedule_provider.dart';
 import 'package:systemjvj/schedule/services/offlineService.dart';
@@ -9,6 +10,9 @@ import 'package:systemjvj/schedule/views/filter_drawer.dart';
 import 'package:systemjvj/schedule/views/top_action_bar.dart';
 
 class ScheduleScreen extends StatefulWidget {
+  final AuthService authService;
+  const ScheduleScreen({super.key, required this.authService});
+
   @override
   _ScheduleScreenState createState() => _ScheduleScreenState();
 }
@@ -70,7 +74,7 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
                         offlineService.activities.isEmpty) {
                       return Center(child: CircularProgressIndicator());
                     }
-                    return CalendarWidget();
+                    return CalendarWidget(authService: widget.authService);
                   },
                 );
               },

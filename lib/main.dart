@@ -1,4 +1,4 @@
-import 'dart:async';
+/* import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
@@ -254,64 +254,6 @@ class _MyAppState extends State<MyApp> {
     super.dispose();
   }
 
-/*   void _initSyncListeners() {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      final connectivity = Provider.of<Connectivity>(context, listen: false);
-      final syncService = Provider.of<SyncService>(context, listen: false);
-      final signatureSyncService =
-          Provider.of<SignatureSyncService>(context, listen: false);
-      final authService = Provider.of<AuthService>(context, listen: false);
-      final maintenanceSyncService =
-          Provider.of<MaintenanceSyncService>(context, listen: false);
-      // Escuchar cambios de conectividad
-      _connectivitySubscription =
-          connectivity.onConnectivityChanged.listen((results) async {
-        // Verificar si hay alguna conexión activa
-        final hasConnection =
-            results.any((result) => result != ConnectivityResult.none);
-
-        if (hasConnection) {
-          debugPrint(' Conexión detectada, iniciando sincronización...');
-
-          // Verificar si el token es válido antes de sincronizar
-          /*        final isValidToken = await authService.isValidToken();
-          if (isValidToken) { */
-          // Sincronizar datos principales
-
-          await maintenanceSyncService.syncPendingInspections();
-
-          await syncService.syncData();
-
-          // Sincronizar firmas pendientes
-          await signatureSyncService.syncPendingSignatures();
-
-          /*     } else {
-            debugPrint(' Token inválido, no se puede sincronizar');
-          } */
-        }
-      });
-
-      // Verificar conectividad inicial
-      connectivity.checkConnectivity().then((results) async {
-        final hasConnection =
-            results.any((result) => result != ConnectivityResult.none);
-
-        if (hasConnection) {
-          debugPrint(
-              ' Conexión inicial detectada, iniciando sincronización...');
-
-          /*        final isValidToken = await authService.isValidToken();
-        if (isValidToken) { */
-          await syncService.syncData();
-          await signatureSyncService.syncPendingSignatures();
-          /*      } */
-        }
-      }).catchError((error) {
-        debugPrint(' Error verificando conectividad inicial: $error');
-      });
-    });
-  } */
-
   void _initSyncListeners() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final connectivity = Provider.of<Connectivity>(context, listen: false);
@@ -374,6 +316,317 @@ class _MyAppState extends State<MyApp> {
       }).catchError((error) {
         debugPrint(
             '################### Error verificando conectividad inicial: $error');
+      });
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      debugShowCheckedModeBanner: false,
+      theme: ThemeData(
+        primaryColor: const Color.fromRGBO(252, 175, 38, 1.0),
+        scaffoldBackgroundColor: Colors.white,
+        inputDecorationTheme: InputDecorationTheme(
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(10),
+            borderSide: BorderSide(color: Colors.grey.shade300),
+          ),
+        ),
+        appBarTheme: const AppBarTheme(
+          color: Color.fromRGBO(252, 175, 38, 1.0),
+          iconTheme: IconThemeData(color: Colors.black),
+        ),
+      ),
+      localizationsDelegates: const [
+        GlobalMaterialLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate,
+        GlobalCupertinoLocalizations.delegate,
+      ],
+      supportedLocales: const [
+        Locale('en', ''),
+        Locale('es', ''),
+        Locale('es', 'ES'),
+        Locale('es', 'MX'),
+      ],
+      home: const AuthWrapper(),
+    );
+  }
+}
+ */
+
+import 'dart:async';
+import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:systemjvj/maintenance/data/inspection_sync_global.dart';
+import 'package:systemjvj/maintenance/data/maintenanceSyncService.dart';
+import 'package:systemjvj/maintenance/data/signatureDatabaseHelper.dart';
+import 'package:systemjvj/maintenance/data/signature_sync_service.dart';
+import 'package:systemjvj/schedule/repository/databaseHelper.dart';
+import 'package:systemjvj/schedule/services/offlineService.dart';
+import 'package:systemjvj/schedule/services/syncService.dart';
+import 'package:systemjvj/features/auth/controller/login_controller.dart';
+import 'package:systemjvj/features/auth/domain/login_use_case.dart';
+import 'package:systemjvj/features/auth/data/auth_service.dart';
+import 'package:systemjvj/features/auth/presentation/auth_wrapper.dart';
+import 'package:systemjvj/schedule/providers/schedule_provider.dart';
+import 'package:systemjvj/schedule/services/api_service.dart';
+import 'package:connectivity_plus/connectivity_plus.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:workmanager/workmanager.dart';
+
+@pragma('vm:entry-point')
+void callbackDispatcher() {
+  Workmanager().executeTask((task, inputData) async {
+    print("🔧 Ejecutando tarea en segundo plano: $task");
+
+    try {
+      if (task == 'syncTask') {
+        // Sincronización general (operaciones pendientes)
+        final sharedPreferences = await SharedPreferences.getInstance();
+        final dbHelper = DatabaseHelper.instance;
+        final authService = AuthService();
+        final connectivity = Connectivity();
+
+        final offlineService = OfflineService(dbHelper, null, connectivity);
+        final syncService = SyncService(
+          offlineService: offlineService,
+          dbHelper: dbHelper,
+          authService: authService,
+        );
+        offlineService.syncService = syncService;
+        await syncService.syncData();
+
+        try {
+          final signatureSyncService =
+              SignatureSyncService(authService: authService);
+          await signatureSyncService.syncPendingSignatures();
+        } catch (e) {
+          print('❌ Error en sincronización de firmas: $e');
+        }
+
+        try {
+          // Usar el nuevo método de sincronización en background
+          await MaintenanceSyncService.syncPendingInspectionsBackground();
+        } catch (e) {
+          print('❌ Error en sincronización de inspecciones: $e');
+        }
+      } else if (task == "syncInspectionsTask") {
+        // Tarea específica para inspecciones
+        await MaintenanceSyncService.syncPendingInspectionsBackground();
+      } else if (task == "syncSignaturesTask") {
+        final signatureSyncService =
+            SignatureSyncService(authService: AuthService());
+        await signatureSyncService.syncPendingSignatures();
+      }
+    } catch (e) {
+      print("❌ Error en la tarea $task: $e");
+      return Future.error(e);
+    }
+
+    return Future.value(true);
+  });
+}
+
+void main() async {
+  runZonedGuarded(() async {
+    WidgetsFlutterBinding.ensureInitialized();
+
+    final sharedPreferences = await SharedPreferences.getInstance();
+    final connectivity = Connectivity();
+    final dbHelper = DatabaseHelper.instance;
+    final authService = AuthService();
+
+    // Inicializar WorkManager
+    try {
+      Workmanager().initialize(callbackDispatcher, isInDebugMode: true);
+      await _registerPeriodicTasks();
+      MaintenanceSyncService.callbackDispatcher(authService);
+    } catch (e) {
+      debugPrint('❌ Error inicializando WorkManager: $e');
+    }
+
+    // Inicializar la app
+    runApp(
+      MultiProvider(
+        providers: [
+          Provider<SharedPreferences>.value(value: sharedPreferences),
+          Provider<Connectivity>.value(value: connectivity),
+          StreamProvider<List<ConnectivityResult>>(
+            create: (_) => connectivity.onConnectivityChanged,
+            initialData: const [ConnectivityResult.none],
+          ),
+          Provider<DatabaseHelper>.value(value: dbHelper),
+          Provider<AuthService>.value(value: authService),
+          ChangeNotifierProvider<OfflineService>(
+            create: (context) => OfflineService(
+              dbHelper,
+              null, // se asignará después
+              connectivity,
+            ),
+          ),
+          ChangeNotifierProvider<SyncService>(
+            create: (context) {
+              final offlineService = context.read<OfflineService>();
+              final syncService = SyncService(
+                offlineService: offlineService,
+                dbHelper: dbHelper,
+                authService: authService,
+              );
+              offlineService.syncService = syncService;
+              return syncService;
+            },
+          ),
+          ProxyProvider<AuthService, LoginUseCase>(
+            update: (_, authService, __) => LoginUseCase(authService),
+          ),
+          ChangeNotifierProxyProvider2<AuthService, LoginUseCase,
+              LoginController>(
+            create: (_) =>
+                LoginController(LoginUseCase(authService), authService),
+            update: (_, authService, loginUseCase, controller) =>
+                controller!..updateDependencies(loginUseCase, authService),
+          ),
+          ProxyProvider3<AuthService, SharedPreferences, Connectivity,
+              ApiService>(
+            update: (_, authService, prefs, connectivity, __) => ApiService(
+                authService: authService,
+                prefs: prefs,
+                connectivity: connectivity),
+          ),
+          ChangeNotifierProxyProvider<ApiService, ScheduleProvider>(
+            create: (_) => ScheduleProvider(
+              apiService: ApiService(
+                  authService: authService,
+                  prefs: sharedPreferences,
+                  connectivity: connectivity),
+              connectivity: connectivity,
+            ),
+            update: (_, apiService, scheduleProvider) {
+              scheduleProvider!..updateApiService(apiService);
+              return scheduleProvider;
+            },
+          ),
+          Provider<SignatureDatabaseHelper>(
+            create: (_) => SignatureDatabaseHelper.instance,
+          ),
+          Provider<SignatureSyncService>(
+            create: (_) => SignatureSyncService(authService: authService),
+          ),
+          Provider<MaintenanceSyncService>(
+            create: (_) => MaintenanceSyncService(authService: authService),
+          ),
+        ],
+        child: const MyApp(),
+      ),
+    );
+  }, (error, stack) {
+    debugPrint('❌ Error no capturado en main: $error');
+    debugPrint('Stack trace: $stack');
+  });
+}
+
+Future<void> _registerPeriodicTasks() async {
+  try {
+    await Workmanager().cancelAll();
+    await Future.delayed(const Duration(milliseconds: 500));
+
+    // Tarea general de sincronización
+    await Workmanager().registerPeriodicTask(
+      'syncTask',
+      'syncTask',
+      frequency: const Duration(minutes: 15),
+      constraints: Constraints(networkType: NetworkType.connected),
+      initialDelay: const Duration(seconds: 30),
+    );
+
+    // Tarea específica para inspecciones (más frecuente)
+    await Workmanager().registerPeriodicTask(
+      'syncInspectionsTask',
+      'syncInspectionsTask',
+      frequency: const Duration(minutes: 10),
+      constraints: Constraints(networkType: NetworkType.connected),
+      initialDelay: const Duration(minutes: 2),
+    );
+
+    // Tarea específica para firmas
+    await Workmanager().registerPeriodicTask(
+      'syncSignaturesTask',
+      'syncSignaturesTask',
+      frequency: const Duration(minutes: 5),
+      constraints: Constraints(networkType: NetworkType.connected),
+      initialDelay: const Duration(minutes: 1),
+    );
+
+    debugPrint('✅ Tareas periódicas registradas correctamente');
+  } catch (e) {
+    debugPrint('❌ Error registrando tareas periódicas: $e');
+  }
+}
+
+class MyApp extends StatefulWidget {
+  const MyApp({super.key});
+
+  @override
+  State<MyApp> createState() => _MyAppState();
+}
+
+class _MyAppState extends State<MyApp> {
+  StreamSubscription<List<ConnectivityResult>>? _connectivitySubscription;
+  Timer? _debounce;
+
+  @override
+  void initState() {
+    super.initState();
+    _initSyncListeners();
+  }
+
+  @override
+  void dispose() {
+    _connectivitySubscription?.cancel();
+    _debounce?.cancel();
+    super.dispose();
+  }
+
+  void _initSyncListeners() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final connectivity = Provider.of<Connectivity>(context, listen: false);
+      final syncService = Provider.of<SyncService>(context, listen: false);
+      final signatureSyncService =
+          Provider.of<SignatureSyncService>(context, listen: false);
+      final maintenanceSyncService =
+          Provider.of<MaintenanceSyncService>(context, listen: false);
+
+      _connectivitySubscription =
+          connectivity.onConnectivityChanged.listen((results) {
+        final hasConnection = results.any((r) => r != ConnectivityResult.none);
+        if (hasConnection) {
+          _debounce?.cancel();
+          _debounce = Timer(const Duration(seconds: 5), () async {
+            try {
+              await syncService.syncData();
+              await signatureSyncService.syncPendingSignatures();
+              await maintenanceSyncService.syncPendingInspections();
+            } catch (e) {
+              debugPrint('❌ Error sincronizando en background: $e');
+            }
+          });
+        }
+      });
+
+      // Sincronización inicial
+      connectivity.checkConnectivity().then((results) async {
+        final hasConnection = results.any((r) => r != ConnectivityResult.none);
+        if (hasConnection) {
+          try {
+            await syncService.syncData();
+            await signatureSyncService.syncPendingSignatures();
+            await maintenanceSyncService.syncPendingInspections();
+          } catch (e) {
+            debugPrint('❌ Error sincronizando inicialmente: $e');
+          }
+        }
       });
     });
   }
