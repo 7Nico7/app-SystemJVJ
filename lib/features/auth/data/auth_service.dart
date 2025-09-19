@@ -1,118 +1,3 @@
-/* import 'dart:async';
-import 'dart:convert';
-import 'dart:developer';
-import 'dart:io';
-import 'package:http/http.dart' as http;
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
-import 'package:shared_preferences/shared_preferences.dart';
-import 'package:systemjvj/core/utils/urlBase.dart';
-
-class AuthService {
-  static const String _baseUrl = BASE_URL;
-  final FlutterSecureStorage _storage = FlutterSecureStorage(
-    aOptions: AndroidOptions(
-      encryptedSharedPreferences: true,
-    ),
-  );
-
-  User? _currentUser;
-
-  User? get currentUser => _currentUser;
-
-  Future<Map<String, dynamic>> login(String email, String password) async {
-    try {
-      log('Conectando a $_baseUrl/api/login');
-      final response = await http
-          .post(
-            Uri.parse('$_baseUrl/api/login'),
-            headers: {
-              'Content-Type': 'application/json',
-              'Accept': 'application/json',
-            },
-            body: json.encode({'email': email, 'password': password}),
-          )
-          .timeout(const Duration(seconds: 10));
-
-      log('Respuesta del servidor: ${response.statusCode} ${response.body}');
-
-      if (response.statusCode == 200) {
-        final responseData = json.decode(response.body);
-        _currentUser = User(
-          id: responseData['user']['id'].toString(),
-          token: responseData['accessToken'],
-          username: responseData['user']['name'],
-          roles: List<String>.from(responseData['roles']),
-          role: responseData['roles'][0], // Nuevo campo para el rol principal
-        );
-        await _storage.write(key: 'access_token', value: _currentUser!.token);
-        await _storage.write(
-          key: 'user_data',
-          value: json.encode({
-            'id': _currentUser!.id,
-            'username': _currentUser!.username,
-            'roles': _currentUser!.roles,
-            'role': _currentUser!.role, // Guardar el rol principal
-          }),
-        );
-        return responseData;
-      } else {
-        final errorBody =
-            response.body.isNotEmpty ? json.decode(response.body) : {};
-        throw Exception(errorBody['message'] ??
-            'Error en el login: ${response.statusCode}');
-      }
-    } on SocketException {
-      throw Exception('No hay conexión con el servidor');
-    } on TimeoutException {
-      throw Exception('Tiempo de espera agotado. Verifica tu red');
-    } catch (e) {
-      log('Error crítico: $e');
-      throw Exception('Error de conexión: $e');
-    }
-  }
-
-  Future<void> logout() async {
-    _currentUser = null;
-    await _storage.delete(key: 'access_token');
-    await _storage.delete(key: 'user_data');
-  }
-
-  Future<void> checkAuthStatus() async {
-    final accessToken = await _storage.read(key: 'access_token');
-
-    final userData = await _storage.read(key: 'user_data');
-
-    if (accessToken != null && userData != null) {
-      final data = json.decode(userData);
-      _currentUser = User(
-          token: accessToken,
-          username: data['username'],
-          roles: List<String>.from(data['roles']),
-          role: data['role'], // Recuperar el rol principal
-          id: data['id']);
-    }
-  }
-
-
-}
-
-class User {
-  final String id;
-  final String token;
-  final String username;
-  final List<String> roles;
-  final String role; // Nuevo campo para el rol principal
-
-  User({
-    required this.id,
-    required this.token,
-    required this.username,
-    required this.roles,
-    required this.role,
-  });
-}
- */
-
 import 'dart:async';
 import 'dart:convert';
 import 'dart:developer';
@@ -338,18 +223,72 @@ class AuthService {
         }),
       );
 
+      final responseBody = json.decode(response.body);
+
       if (response.statusCode == 200) {
-        return json.decode(response.body);
+        return responseBody;
+      } else if (response.statusCode == 422) {
+        // Manejo específico de errores de validación
+        if (responseBody['errors']?['current_password'] != null) {
+          throw Exception(responseBody['errors']['current_password'][0]);
+        }
+        if (responseBody['errors']?['new_password'] != null) {
+          throw Exception(responseBody['errors']['new_password'][0]);
+        }
+        throw Exception(responseBody['message'] ?? 'Error de validación');
       } else {
-        final errorBody = json.decode(response.body);
-        throw Exception(errorBody['message'] ?? 'Error al cambiar contraseña');
+        throw Exception(
+            responseBody['message'] ?? 'Error al cambiar contraseña');
       }
     } on SocketException {
       throw Exception('No hay conexión con el servidor');
     } on TimeoutException {
       throw Exception('Tiempo de espera agotado. Verifica tu red');
     } catch (e) {
-      throw Exception('Error al cambiar contraseña: $e');
+      throw Exception('Error al cambiar contraseña: ${e.toString()}');
+    }
+  }
+
+// Método para cargar credenciales específicamente para background
+  Future<void> loadCredentialsForBackground() async {
+    try {
+      // Primero intentar desde SharedPreferences (más confiable para background)
+      final prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString('auth_token');
+      final userDataString = prefs.getString('user_data');
+
+      if (token != null && userDataString != null) {
+        final userData = json.decode(userDataString);
+        _currentUser = User(
+          id: userData['id'],
+          token: token,
+          username: userData['username'],
+          roles: List<String>.from(userData['roles']),
+          role: userData['role'],
+        );
+        return;
+      }
+
+      // Fallback a SecureStorage si no hay datos en SharedPreferences
+      final secureToken = await _storage.read(key: 'access_token');
+      final secureUserData = await _storage.read(key: 'user_data');
+
+      if (secureToken != null && secureUserData != null) {
+        final userData = json.decode(secureUserData);
+        _currentUser = User(
+          id: userData['id'],
+          token: secureToken,
+          username: userData['username'],
+          roles: List<String>.from(userData['roles']),
+          role: userData['role'],
+        );
+
+        // Guardar en SharedPreferences para próximas ejecuciones en background
+        await _saveTokenToSharedPreferences(secureToken);
+        await _saveUserDataToSharedPreferences(userData);
+      }
+    } catch (e) {
+      print('❌ Error cargando credenciales para background: $e');
     }
   }
 }

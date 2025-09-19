@@ -11,6 +11,7 @@ import 'package:systemjvj/schedule/models/activity_model.dart';
 import 'package:systemjvj/schedule/providers/schedule_provider.dart';
 import 'package:systemjvj/schedule/services/offlineService.dart';
 import 'package:systemjvj/schedule/services/syncService.dart';
+import 'package:flutter/rendering.dart';
 
 class EventDetailDialog extends StatefulWidget {
   final Activity activity;
@@ -126,7 +127,10 @@ class _EventDetailDialogState extends State<EventDetailDialog> {
         }
         _registerFlowStep(context, operationType);
       },
-      child: Text(text),
+      child: Text(
+        text,
+        style: TextStyle(fontWeight: FontWeight.bold),
+      ),
     );
   }
 
@@ -149,7 +153,9 @@ class _EventDetailDialogState extends State<EventDetailDialog> {
   Widget build(BuildContext context) {
     final activity = _currentActivity;
     final offlineService = Provider.of<OfflineService>(context, listen: false);
+    final provider = Provider.of<ScheduleProvider>(context, listen: false);
 
+    // SIEMPRE usar el estado local como prioritario
     final effectiveStatus = activity.localStatus > 0
         ? activity.localStatus
         : activity.maintenanceStatus;
@@ -172,56 +178,86 @@ class _EventDetailDialogState extends State<EventDetailDialog> {
     final hasSigned = activity.serviceRating == 1 || _hasLocalSignature;
 
     return AlertDialog(
-/*       title: Text(
-        activity.name == null || activity.name!.isEmpty
-            ? 'Sin nombre'
-            : activity.name!,
-        style: TextStyle(fontWeight: FontWeight.bold),
-      ), */
-      content: SingleChildScrollView(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            _buildDetailRow('FOLIO:', '${activity.title}'),
-            _buildDetailRow('DESCRIPCIÓN:', activity.description!),
-            _buildDetailRow('SERVICIO:',
-                activity.serviceScope == 2 ? "EXTERNO" : "INTERNO"),
-            _buildDetailRow('FECHA:', '${_formatDate(activity.start)}'),
-            _buildDetailRow('HORA:',
-                '${_formatTime(activity.start)} - ${_formatTime(activity.end)}'),
-            _buildDetailRow(
-                'UBICACIÓN:',
-                activity.location != null
-                    ? activity.location!
-                    : "Sin ubicación"),
-            _buildDetailRow('CLIENTE:',
-                activity.client != null ? activity.client! : "Sin cliente"),
-            _buildDetailRow(
-                'TÉCNICO:',
-                activity.technical != null
-                    ? activity.technical!
-                    : "Sin técnico"),
-            _buildDetailRow(
-                'EQUIPO:',
-                activity.equipment != null
-                    ? activity.equipment!
-                    : "Sin equipo"),
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('ESTADO:', style: TextStyle(fontWeight: FontWeight.bold)),
-                SizedBox(width: 4),
-                _buildStatusBadge(effectiveStatus),
-                if (!activity.isSynced) ...[
-                  SizedBox(width: 4),
-                  Icon(Icons.cloud_off, size: 16, color: Colors.orange),
-                  SizedBox(width: 3),
-                  Text('Pendiente',
-                      style: TextStyle(color: Colors.orange, fontSize: 10)),
-                ]
-              ],
+/*       backgroundColor: Colors.white, // Fondo blanco sólido */
+/*       surfaceTintColor:
+          Colors.white, // Elimina el tinte de color de la superficie */
+      shadowColor: Colors.transparent, // Elimina cualquier sombra coloreada
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16.0),
+        side: BorderSide(
+          color: Colors.grey.shade300, // Borde gris claro
+          width: 1.0,
+        ),
+      ),
+
+      title: Container(
+        decoration: BoxDecoration(
+          color: Colors.white, // Fondo blanco para el título
+          border: Border(
+            bottom: BorderSide(
+              color: Colors.grey.shade300, // Línea divisoria gris
+              width: 1.0,
             ),
-          ],
+          ),
+        ),
+        padding: const EdgeInsets.only(bottom: 16.0),
+        child: SelectionArea(
+          child: Text(
+            activity.name == null || activity.name!.isEmpty
+                ? 'Sin nombre'
+                : activity.name!,
+            style: TextStyle(
+                fontWeight: FontWeight.bold, color: Colors.black, fontSize: 16),
+          ),
+        ),
+      ),
+      content: SelectionArea(
+        child: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _buildDetailRow('FOLIO:', '${activity.title}'),
+              _buildDetailRow('DESCRIPCIÓN:', activity.description!),
+              _buildDetailRow('SERVICIO:',
+                  activity.serviceScope == 2 ? "EXTERNO" : "INTERNO"),
+              _buildDetailRow('FECHA:', '${_formatDate(activity.start)}'),
+              _buildDetailRow('HORA:',
+                  '${_formatTime(activity.start)} - ${_formatTime(activity.end)}'),
+              _buildDetailRow(
+                  'UBICACIÓN:',
+                  activity.location != null
+                      ? activity.location!
+                      : "Sin ubicación"),
+              _buildDetailRow('CLIENTE:',
+                  activity.client != null ? activity.client! : "Sin cliente"),
+              _buildDetailRow(
+                  'TÉCNICO:',
+                  activity.technical != null
+                      ? activity.technical!
+                      : "Sin técnico"),
+              _buildDetailRow(
+                  'EQUIPO:',
+                  activity.equipment != null
+                      ? activity.equipment!
+                      : "Sin equipo"),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('ESTADO:',
+                      style: TextStyle(fontWeight: FontWeight.bold)),
+                  SizedBox(width: 2),
+                  _buildStatusBadge(effectiveStatus),
+                  if (!activity.isSynced) ...[
+                    SizedBox(width: 2),
+                    Icon(Icons.cloud_off, size: 12, color: Colors.orange),
+                    SizedBox(width: 2),
+                    Text('Modo offline',
+                        style: TextStyle(color: Colors.orange, fontSize: 10)),
+                  ]
+                ],
+              ),
+            ],
+          ),
         ),
       ),
       actions: _isProcessing
@@ -261,6 +297,24 @@ class _EventDetailDialogState extends State<EventDetailDialog> {
     bool technicalSignatureInLocal,
     bool technicalSignatureInBackend,
   ) {
+    final provider = Provider.of<ScheduleProvider>(context, listen: false);
+    final syncService = Provider.of<SyncService>(context, listen: false);
+    final isAnySyncing = provider.isSyncing || syncService.isSyncing;
+
+    // Si está sincronizando, mostrar solo botón de cerrar
+    if (isAnySyncing) {
+      return [
+        Center(child: CircularProgressIndicator()),
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: Text(
+            'CERRAR',
+            style: TextStyle(fontWeight: FontWeight.bold),
+          ),
+        ),
+      ];
+    }
+
     return [
       if (isExternalService && effectiveStatus == 2)
         // _buildActionButton(context, 'SALIDA DE BASE', 'base_out'),
@@ -283,12 +337,18 @@ class _EventDetailDialogState extends State<EventDetailDialog> {
         TextButton(
           onPressed: () =>
               _navigateToInspection1(context, activity, widget.authService),
-          child: Text('Inspeccionar equipo'),
+          child: Text(
+            'INSPECCIONAR EQUIPO',
+            style: TextStyle(fontWeight: FontWeight.bold),
+          ),
         ),
       if (!hasSigned && (isInspectionConcluded || hasTransportUnit))
         TextButton(
           onPressed: () => _navigateToSignature(context, activity),
-          child: Text('Firmar de cliente'),
+          child: Text(
+            'FIRMA DE CLIENTE',
+            style: TextStyle(fontWeight: FontWeight.bold),
+          ),
         ),
       if (hasSigned &&
           (isInspectionConcluded || hasTransportUnit) &&
@@ -308,19 +368,38 @@ class _EventDetailDialogState extends State<EventDetailDialog> {
         _buildActionButton(context, 'LLEGO A BASE ', 'base_in'),
       TextButton(
         onPressed: () => Navigator.pop(context),
-        child: Text('CERRAR'),
+        child: Text(
+          'CERRAR',
+          style: TextStyle(fontWeight: FontWeight.bold),
+        ),
       ),
     ];
   }
 
-  Widget _buildActionButton(
+/*   Widget _buildActionButton(
       BuildContext context, String text, String operationType) {
     return TextButton(
       onPressed: () => _registerFlowStep(context, operationType),
       child: Text(text),
     );
+  } */
+
+  Widget _buildActionButton(
+      BuildContext context, String text, String operationType) {
+    return TextButton(
+/*       style: TextButton.styleFrom(
+        foregroundColor: Colors.black, // Texto negro
+        backgroundColor: Colors.transparent, // Fondo transparente
+      ), */
+      onPressed: () => _registerFlowStep(context, operationType),
+      child: Text(
+        text,
+        style: TextStyle(fontWeight: FontWeight.bold),
+      ),
+    );
   }
 
+// En EventDetailDialog, modificar _registerFlowStep
   Future<void> _registerFlowStep(
       BuildContext context, String operationType) async {
     if (_isProcessing) return;
@@ -342,19 +421,20 @@ class _EventDetailDialogState extends State<EventDetailDialog> {
         timeValue: timeValue,
       );
 
-      // La sincronización ahora se maneja automáticamente en OfflineService
+      // Actualizar la UI inmediatamente con los cambios locales
+      // En lugar de esperar a la sincronización completa
       await widget.provider.refreshActivities();
 
       if (mounted) {
         Navigator.pop(context);
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Paso registrado y sincronizando...')),
+          SnackBar(content: Text('Paso registrado correctamente')),
         );
       }
     } catch (e) {
       print('Error registrando paso: $e');
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error al registrar paso')),
+        SnackBar(content: Text('Error al registrar paso: $e')),
       );
     } finally {
       if (mounted) {
@@ -385,6 +465,7 @@ class _EventDetailDialogState extends State<EventDetailDialog> {
       context,
       MaterialPageRoute(
         builder: (context) => ClientSignatureForm(
+            client: activity.client != null ? activity.client! : '',
             maintenanceId: activity.maintenanceId!.toString(),
             authService: widget.authService),
       ),
@@ -447,16 +528,16 @@ class _EventDetailDialogState extends State<EventDetailDialog> {
     }
 
     return Container(
-      padding: EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+      padding: EdgeInsets.symmetric(horizontal: 9, vertical: 3),
       decoration: BoxDecoration(
         color: bgColor,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(10),
       ),
       child: Text(
         statusText,
         style: TextStyle(
           color: Colors.white,
-          fontSize: 14,
+          fontSize: 13,
           fontWeight: FontWeight.w500,
         ),
       ),

@@ -49,6 +49,9 @@
 		<string>Necesitamos usar la cámara para tomar fotos.</string>
 		<key>NSLocationWhenInUseUsageDescription</key>
 		<string>Necesitamos tu ubicación para guardarla junto con la foto.</string>
-
+		<key>NSMicrophoneUsageDescription</key>
+		<string>Esta app necesita acceso al micrófono para la búsqueda por voz</string>
+		<key>NSSpeechRecognitionUsageDescription</key>
+		<string>Esta app necesita acceso al reconocimiento de voz para la búsqueda por voz</string>
 	</dict>
 </plist>

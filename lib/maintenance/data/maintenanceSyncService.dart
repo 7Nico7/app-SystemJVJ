@@ -82,23 +82,6 @@ class MaintenanceSyncService {
         modifiedChecks.add(currentCheck);
       }
 
-      // Procesar fotos generales
-/*       for (var photo in photos) {
-        final path = photo['image_path'] as String;
-        final file = File(path);
-        if (await file.exists()) {
-          final fileName = path.split('/').last;
-          generalPhotosData.add({
-            'file_name': fileName,
-            'type': photo['type'],
-            'description': photo['description'],
-          });
-          filesToUpload.add(file);
-        } else {
-          print(' SYNC Archivo de foto general no encontrado: $path');
-        }
-      } */
-
       for (var photo in photos) {
         final Map<String, dynamic> currentPhoto = Map.from(photo);
         final path = currentPhoto['image_path'] as String;

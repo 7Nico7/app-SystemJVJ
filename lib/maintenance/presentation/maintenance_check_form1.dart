@@ -18,6 +18,8 @@ import 'package:systemjvj/schedule/providers/schedule_provider.dart';
 import 'package:systemjvj/schedule/repository/databaseHelper.dart';
 import 'package:systemjvj/schedule/services/location_services.dart';
 import 'package:uuid/uuid.dart';
+import 'package:share_plus/share_plus.dart';
+import 'package:cross_file/cross_file.dart';
 
 class MaintenanceCheckForm1 extends StatefulWidget {
   final int inspectionId;
@@ -41,6 +43,7 @@ class _MaintenanceCheckFormState extends State<MaintenanceCheckForm1>
   bool _isLoading = true;
   bool _isEditable = true;
   final ImagePicker _picker = ImagePicker();
+  final GlobalKey _shareButtonKey = GlobalKey();
 
   // Controladores separados para cada pestaña
   final ScrollController _generalScrollController = ScrollController();
@@ -198,26 +201,52 @@ class _MaintenanceCheckFormState extends State<MaintenanceCheckForm1>
           context: context,
           barrierDismissible: false,
           builder: (context) => AlertDialog(
-            title: Text('¿Salir sin guardar?'),
+            title: Text(
+              '¿SALIR SIN GUARDAR BORRADOR?',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+              textAlign: TextAlign.center,
+            ),
             content: Text(
-                'Tienes cambios sin guardar. ¿Deseas guardar un borrador antes de salir?'),
+              'TIENES CAMBIOS SIN GUARDAR. ¿DESEAS GUARDAR UN BORRADOR ANTES DE SALIR?',
+              textAlign: TextAlign.justify,
+            ),
             actions: [
-              TextButton(
-                onPressed: () => Navigator.of(context).pop(false),
-                child: Text('Cancelar'),
+              Center(
+                child: TextButton(
+                  onPressed: () => Navigator.of(context).pop(false),
+                  child: Text(
+                    'CANCELAR',
+                    style: TextStyle(
+                        color: Colors.red,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 14),
+                  ),
+                ),
               ),
-              TextButton(
-                onPressed: () => Navigator.of(context).pop(true),
-                child: Text('Salir sin guardar'),
+              Center(
+                child: TextButton(
+                  onPressed: () => Navigator.of(context).pop(true),
+                  child: Text('SALIR SIN GUARDAR',
+                      style: TextStyle(
+                          color: Colors.red,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 14)),
+                ),
               ),
-              TextButton(
-                onPressed: () async {
-                  setState(() => _isSaving = true);
-                  await _saveDraft();
-                  setState(() => _isSaving = false);
-                  Navigator.of(context).pop(true);
-                },
-                child: Text('Guardar borrador'),
+              Center(
+                child: TextButton(
+                  onPressed: () async {
+                    setState(() => _isSaving = true);
+                    await _saveDraft();
+                    setState(() => _isSaving = false);
+                    Navigator.of(context).pop(true);
+                  },
+                  child: Text('GUARDAR BORRADOR',
+                      style: TextStyle(
+                          color: Colors.green,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 14)),
+                ),
               ),
             ],
           ),
@@ -228,9 +257,9 @@ class _MaintenanceCheckFormState extends State<MaintenanceCheckForm1>
   void _registerBackgroundSync() {
     try {
       MaintenanceSyncService.registerBackgroundSync();
-      print('✅ Sincronización en segundo plano registrada');
+      print('Sincronización en segundo plano registrada');
     } catch (e) {
-      print('❌ Error al registrar sincronización en segundo plano: $e');
+      print('Error al registrar sincronización en segundo plano: $e');
     }
   }
 
@@ -942,27 +971,42 @@ class _MaintenanceCheckFormState extends State<MaintenanceCheckForm1>
       final result = await showDialog(
         context: context,
         barrierDismissible: false,
-        builder: (context) => WillPopScope(
-          onWillPop: () async => false,
+        builder:
+            (context) => /* WillPopScope( //
+          onWillPop: () async => false, */
+                PopScope(
+          canPop:
+              false, // Bloquea el botón de retroceso (equivalente a onWillPop: () async => false)
           child: AlertDialog(
-            title: Text('Descripción para $photoType'),
+            title: Text('Descripción para $photoType',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
             content: TextField(
               controller: descriptionController,
               decoration: const InputDecoration(
-                labelText: 'Descripción obligatoria',
+                labelText: 'Descripción',
                 border: OutlineInputBorder(),
               ),
-              maxLines: 3,
+              maxLines: 5,
+              style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
+              textAlign: TextAlign.center,
             ),
             actions: [
               TextButton(
                 onPressed: () => Navigator.pop(context),
-                child: const Text('Cancelar'),
+                child: const Text(
+                  'CANCELAR',
+                  style:
+                      TextStyle(color: Colors.red, fontWeight: FontWeight.bold),
+                ),
               ),
               TextButton(
                 onPressed: () =>
                     Navigator.pop(context, descriptionController.text),
-                child: const Text('Guardar'),
+                child: const Text(
+                  'GUARDAR',
+                  style: TextStyle(
+                      color: Colors.green, fontWeight: FontWeight.bold),
+                ),
               ),
             ],
           ),
@@ -1123,12 +1167,18 @@ class _MaintenanceCheckFormState extends State<MaintenanceCheckForm1>
         barrierDismissible: false,
         builder: (context) {
           String currentText = '';
-          return WillPopScope(
-            onWillPop: () async => false, // Bloquea el botón de retroceso
+/*           return WillPopScope(
+            onWillPop: () async => false, // Bloquea el botón de retroceso */
+          return PopScope(
+            canPop:
+                false, // Bloquea el botón de retroceso (equivalente a onWillPop: () async => false)
             child: StatefulBuilder(
               builder: (context, setState) {
                 return AlertDialog(
-                  title: const Text('Descripción de la recomendación'),
+                  title: const Text(
+                    'Descripción de la recomendación',
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                  ),
                   content: TextField(
                     controller: descriptionController,
                     decoration: const InputDecoration(
@@ -1149,7 +1199,10 @@ class _MaintenanceCheckFormState extends State<MaintenanceCheckForm1>
                         File(permanentPath).delete();
                         Navigator.pop(context);
                       },
-                      child: const Text('Cancelar'),
+                      child: const Text(
+                        'CANCELAR',
+                        style: TextStyle(color: Colors.red),
+                      ),
                     ),
                     TextButton(
                       onPressed: currentText.trim().isEmpty
@@ -1158,8 +1211,20 @@ class _MaintenanceCheckFormState extends State<MaintenanceCheckForm1>
                               Navigator.pop(
                                   context, descriptionController.text);
                             },
-                      child: const Text('Guardar'),
-                    ),
+                      style: ButtonStyle(
+                        foregroundColor: WidgetStateProperty.resolveWith<Color>(
+                          (Set<WidgetState> states) {
+                            // Cuando está deshabilitado
+                            if (states.contains(WidgetState.disabled)) {
+                              return Colors.grey;
+                            }
+                            // Cuando está habilitado
+                            return Colors.green;
+                          },
+                        ),
+                      ),
+                      child: const Text('GUARDAR'),
+                    )
                   ],
                 );
               },
@@ -1685,10 +1750,10 @@ class _MaintenanceCheckFormState extends State<MaintenanceCheckForm1>
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text(
+/*         const Text(
           'Recomendaciones',
           style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-        ),
+        ), */
         const SizedBox(height: 8),
         const Text(
           'Agregue recomendaciones con foto y descripción',
@@ -1706,6 +1771,16 @@ class _MaintenanceCheckFormState extends State<MaintenanceCheckForm1>
                   : _addRecommendation,
             ),
           ),
+        const SizedBox(height: 16),
+        if (_recommendations.isNotEmpty)
+          Center(
+            child: ElevatedButton.icon(
+              key: _shareButtonKey, // Agrega esta línea
+              icon: Icon(Icons.share),
+              label: Text('Compartir Recomendaciones por WhatsApp'),
+              onPressed: _shareRecommendations,
+            ),
+          ),
         if (_isEditable) const SizedBox(height: 16),
 
         // Lista de recomendaciones
@@ -1719,6 +1794,152 @@ class _MaintenanceCheckFormState extends State<MaintenanceCheckForm1>
     );
   }
 
+  void _shareRecommendations() async {
+    if (_recommendations.isEmpty) return;
+
+    for (int i = 0; i < _recommendations.length; i++) {
+      var rec = _recommendations[i];
+
+      // Si no es la primera, preguntar si continuar
+      if (i > 0) {
+        final continueSharing = await showDialog<bool>(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: Text('Continuar con recomendación ${i + 1}?'),
+            content: Text(
+                '¿Has terminado de enviar la recomendación anterior?\n\nContinuemos con: ${rec.description}'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(false),
+                child: Text('Cancelar proceso'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(true),
+                child: Text('Continuar'),
+              ),
+            ],
+          ),
+        );
+
+        if (continueSharing != true) break;
+      }
+
+      // Enviar la recomendación actual
+      String message =
+          "🔧 RECOMENDACIÓN ${i + 1} de ${_recommendations.length}\n\n";
+      message += "${rec.description}\n";
+
+      if (rec.latitude != null && rec.longitude != null) {
+        message +=
+            "\n📍 ${rec.latitude!.toStringAsFixed(6)}, ${rec.longitude!.toStringAsFixed(6)}";
+      }
+
+      if (rec.address != null && rec.address!.isNotEmpty) {
+        message += "\n🏠 ${rec.address}";
+      }
+
+      List<XFile> files = [];
+      if (rec.imagePath != null && File(rec.imagePath!).existsSync()) {
+        files.add(XFile(rec.imagePath!));
+      }
+
+      try {
+        await SharePlus.instance.share(
+          ShareParams(
+            text: message,
+            files: files.isNotEmpty ? files : null,
+          ),
+        );
+      } catch (e) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: $e')),
+        );
+        break;
+      }
+    }
+  }
+
+/* 
+  void _shareRecommendations() async {
+    if (_recommendations.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('No hay recomendaciones para compartir')),
+      );
+      return;
+    }
+
+    try {
+      // Construir UN SOLO mensaje con TODAS las recomendaciones
+      String message = "🔧 *RECOMENDACIONES DE MANTENIMIENTO*\n\n";
+      message += "Total de recomendaciones: ${_recommendations.length}\n\n";
+
+      for (int i = 0; i < _recommendations.length; i++) {
+        var rec = _recommendations[i];
+        message += "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n";
+        message += "📋 *RECOMENDACIÓN ${i + 1}*\n";
+        message += "${rec.description}\n\n";
+
+        if (rec.latitude != null && rec.longitude != null) {
+          message +=
+              "📍 Coordenadas: ${rec.latitude!.toStringAsFixed(6)}, ${rec.longitude!.toStringAsFixed(6)}\n";
+        }
+
+        if (rec.address != null && rec.address!.isNotEmpty) {
+          message += "🏠 Dirección: ${rec.address}\n";
+        }
+
+        message += "\n"; // Espacio entre recomendaciones
+      }
+
+      message += "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n";
+      message +=
+          "📅 Fecha: ${DateTime.now().day}/${DateTime.now().month}/${DateTime.now().year}\n";
+      message +=
+          "⏰ Hora: ${DateTime.now().hour}:${DateTime.now().minute.toString().padLeft(2, '0')}";
+
+      // Recopilar TODAS las imágenes en una sola lista
+      List<XFile> allImages = [];
+      for (var rec in _recommendations) {
+        if (rec.imagePath != null && File(rec.imagePath!).existsSync()) {
+          allImages.add(XFile(rec.imagePath!));
+        }
+      }
+
+      // Obtener la posición del botón para el popup de compartir
+      final box =
+          _shareButtonKey.currentContext?.findRenderObject() as RenderBox?;
+      final sharePositionOrigin =
+          box != null ? box.localToGlobal(Offset.zero) & box.size : null;
+
+      // UNA SOLA llamada a share con TODO el contenido
+      await SharePlus.instance.share(
+        ShareParams(
+          text: message,
+          subject:
+              'Recomendaciones de Mantenimiento - ${_recommendations.length} items',
+          files: allImages.isNotEmpty ? allImages : null,
+          sharePositionOrigin: sharePositionOrigin,
+        ),
+      );
+
+      // Mostrar mensaje de éxito
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+              '${_recommendations.length} recomendaciones compartidas exitosamente'),
+          backgroundColor: Colors.green,
+        ),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error al compartir: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+ */
   Widget _buildRecommendationItem(Recommendation recommendation) {
     return Card(
       margin: const EdgeInsets.symmetric(vertical: 8),
@@ -1743,6 +1964,10 @@ class _MaintenanceCheckFormState extends State<MaintenanceCheckForm1>
                   IconButton(
                     icon: const Icon(Icons.delete, color: Colors.red),
                     onPressed: () => _removeRecommendation(recommendation.id),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.share, color: Colors.green),
+                    onPressed: () => _shareSingleRecommendation(recommendation),
                   ),
                 ],
               ],
@@ -1784,21 +2009,58 @@ class _MaintenanceCheckFormState extends State<MaintenanceCheckForm1>
     );
   }
 
+  // Función para compartir una sola recomendación
+  void _shareSingleRecommendation(Recommendation rec) async {
+    // Construir el mensaje para esta recomendación específica
+    String message = "🔧 *RECOMENDACIÓN DE MANTENIMIENTO*\n\n";
+    message += "${rec.description}\n";
+
+    if (rec.latitude != null && rec.longitude != null) {
+      message +=
+          "📍 Coordenadas: ${rec.latitude!.toStringAsFixed(6)}, ${rec.longitude!.toStringAsFixed(6)}\n";
+    }
+
+    if (rec.address != null && rec.address!.isNotEmpty) {
+      message += "🏠 Dirección: ${rec.address}\n";
+    }
+
+    // Preparar archivo para compartir
+    List<XFile> files = [];
+
+    if (rec.imagePath != null && File(rec.imagePath!).existsSync()) {
+      files.add(XFile(rec.imagePath!));
+    }
+
+    try {
+      await SharePlus.instance.share(
+        ShareParams(
+          text: message,
+          subject: 'Recomendación de Mantenimiento',
+          files: files.isNotEmpty ? files : null,
+        ),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error al compartir: $e')),
+      );
+    }
+  }
+
   Widget _buildPhotosSection() {
     final missingTypes = _getMissingPhotoTypes();
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text(
+/*         const Text(
           'Fotos',
           style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-        ),
-        const SizedBox(height: 8),
+        ), */
+/*         const SizedBox(height: 8),
         const Text(
           'Tipos: Antes, Después, Placa, Horómetro, Falla, Reparación',
           style: TextStyle(fontStyle: FontStyle.italic),
-        ),
+        ), */
 
         // Indicador de tipos faltantes
         if (missingTypes.isNotEmpty) ...[
@@ -1997,8 +2259,6 @@ class _MaintenanceCheckFormState extends State<MaintenanceCheckForm1>
           ElevatedButton(
             onPressed: _saveDraft,
             style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.grey,
-              foregroundColor: Colors.white,
               padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
             ),
             child: const Text('Guardar Borrador'),
@@ -2006,7 +2266,7 @@ class _MaintenanceCheckFormState extends State<MaintenanceCheckForm1>
           ElevatedButton(
             onPressed: _submitForm,
             style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.green,
+              backgroundColor: Theme.of(context).colorScheme.primary,
               foregroundColor: Colors.white,
               padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
             ),
@@ -2031,7 +2291,7 @@ class _MaintenanceCheckFormState extends State<MaintenanceCheckForm1>
             style: TextStyle(
               fontSize: 20,
               fontWeight: FontWeight.bold,
-              color: Theme.of(context).primaryColor,
+              color: Theme.of(context).primaryColorDark,
             ),
           ),
         ],
@@ -2371,7 +2631,7 @@ class _MaintenanceCheckFormState extends State<MaintenanceCheckForm1>
               ), */
             if (_isSaving)
               Container(
-                color: Colors.black.withOpacity(0.5),
+                color: Color.fromRGBO(0, 0, 0, 0.5),
                 child: Center(
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,

@@ -5,11 +5,11 @@ import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:systemjvj/schedule/models/activity_model.dart';
 import 'package:systemjvj/schedule/services/api_service.dart';
 import 'package:systemjvj/schedule/repository/databaseHelper.dart';
+import 'package:systemjvj/schedule/services/syncService.dart';
 
 class ScheduleProvider with ChangeNotifier {
   ApiService apiService;
   List<Activity> _activities = [];
-  bool _isLoading = false;
   String _searchTerm = '';
   String? _typeService;
   String? _selectedTechnicianId;
@@ -18,15 +18,27 @@ class ScheduleProvider with ChangeNotifier {
   DateTime? _endInDate;
   bool _isAdmin = false;
   final Connectivity connectivity;
+  String get searchTerm => _searchTerm;
+
+  List<Activity> _localActivities = []; // Actividades con cambios locales
+  SyncService syncService; // Añadir referencia al SyncService
+  bool _isLoading = false;
+  bool _isSyncing = false; // Nuevo estado para sincronización
 
   final Map<String, String> _technicianNames = {};
 
-  ScheduleProvider({required this.apiService, required this.connectivity}) {
+  ScheduleProvider({
+    required this.apiService,
+    required this.connectivity,
+    required this.syncService,
+  }) {
     _checkUserRole();
   }
 
-  List<Activity> get activities => _activities;
+  List<Activity> get activities => _isSyncing ? _localActivities : _activities;
   bool get isLoading => _isLoading;
+  bool get isSyncing => _isSyncing; // Nuevo getter
+
   int? get status => _status;
   DateTime? get startInDate => _startInDate;
   DateTime? get endInDate => _endInDate;
@@ -49,34 +61,63 @@ class ScheduleProvider with ChangeNotifier {
     }
   }
 
-  //refrescar actividades
   Future<void> refreshActivities() async {
     _isLoading = true;
     notifyListeners();
 
     try {
       final dbHelper = DatabaseHelper.instance;
-      _activities = await dbHelper.getActivities();
 
-      if (kDebugMode) {
-        print('Actividades refrescadas: ${_activities.length}');
+      // Siempre cargar actividades locales primero
+      _localActivities = await dbHelper.getActivities();
+      print(
+          '[SCHEDULE] Actividades locales cargadas: ${_localActivities.length}');
 
-        // Depuración detallada
-        for (var activity in _activities) {
-          print('Actividad ID: ${activity.id}');
-          print(' - inspectionId: ${activity.inspectionId}');
-          print(' - inspectionConcluded: ${activity.inspectionConcluded}');
-          print(' - transportUnit: ${activity.transportUnit}');
-          print(' - maintenanceStatus: ${activity.maintenanceStatus}');
-          print(' - localStatus: ${activity.localStatus}');
-          print('---');
+      // Verificar conexión antes de intentar sincronizar
+      final isConnected = await checkConnectivity();
+
+      if (isConnected) {
+        // Marcar que comenzó la sincronización
+        _isSyncing = true;
+        notifyListeners();
+
+        try {
+          // Sincronizar datos antes de cargar desde el servidor
+          await syncService.syncData();
+        } catch (e) {
+          print('Error durante sincronización: $e');
         }
+
+        try {
+          // Ahora cargar actividades actualizadas del servidor
+          _activities = await apiService.getActivities(
+            search: _searchTerm,
+            typeService: _typeService,
+            technical: _isAdmin ? _selectedTechnicianId : null,
+            status: _status,
+            startInDate: _startInDate,
+            endInDate: _endInDate,
+          );
+
+          // Actualizar nombres de técnicos
+          _updateTechnicianNames();
+        } catch (e) {
+          print('Error obteniendo actividades del servidor: $e');
+          // Usar datos locales si falla la obtención del servidor
+          _activities = _localActivities;
+        }
+      } else {
+        // Sin conexión, usar solo datos locales
+        _activities = _localActivities;
+        print(
+            '[SCHEDULE] Usando datos locales (sin conexión): ${_activities.length}');
       }
     } catch (e) {
-      if (kDebugMode) {
-        print('Error refrescando actividades: $e');
-      }
+      print('Error refrescando actividades: $e');
+      // En caso de error, usar datos locales
+      _activities = _localActivities;
     } finally {
+      _isSyncing = false;
       _isLoading = false;
       notifyListeners();
     }
@@ -131,7 +172,17 @@ class ScheduleProvider with ChangeNotifier {
     final dbHelper = DatabaseHelper.instance;
 
     try {
+      // Siempre cargar actividades locales primero
+      _localActivities = await dbHelper.getActivities();
+
       if (isConnected || forceRefresh) {
+        // Marcar inicio de sincronización
+        _isSyncing = true;
+        notifyListeners();
+
+        // Sincronizar antes de obtener datos del servidor
+        await syncService.syncData();
+
         _activities = await apiService.getActivities(
           search: _searchTerm,
           typeService: _typeService,
@@ -141,8 +192,12 @@ class ScheduleProvider with ChangeNotifier {
           endInDate: _endInDate,
         );
         _updateTechnicianNames();
+
+        // Marcar fin de sincronización
+        _isSyncing = false;
       } else {
-        _activities = await dbHelper.getActivities();
+        // Sin conexión, usar solo datos locales
+        _activities = _localActivities;
       }
 
       if (kDebugMode) {
@@ -159,6 +214,11 @@ class ScheduleProvider with ChangeNotifier {
       _isLoading = false;
       notifyListeners();
     }
+  }
+
+  // En ScheduleProvider, añade estos métodos:
+  void updateSyncService(SyncService newSyncService) {
+    syncService = newSyncService;
   }
 
   void _updateTechnicianNames() {

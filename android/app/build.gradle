@@ -36,6 +36,10 @@ android {
             signingConfig = signingConfigs.debug
         }
     }
+    tasks.withType(JavaCompile).configureEach {
+    println "Compilando módulo: ${it.name}, source=${it.sourceCompatibility}, target=${it.targetCompatibility}"
+}
+
 }
 
 flutter {

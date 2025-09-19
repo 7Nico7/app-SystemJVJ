@@ -6,6 +6,7 @@ import 'package:systemjvj/features/auth/data/auth_service.dart';
 import 'package:systemjvj/schedule/models/activity_model.dart';
 import 'package:systemjvj/schedule/providers/schedule_provider.dart';
 import 'package:systemjvj/schedule/services/offlineService.dart';
+import 'package:systemjvj/schedule/services/syncService.dart';
 import 'package:systemjvj/schedule/views/event_detail_dialog.dart';
 
 class CalendarWidget extends StatefulWidget {
@@ -32,32 +33,85 @@ class _CalendarWidgetState extends State<CalendarWidget> {
     return Consumer<ScheduleProvider>(
       builder: (context, provider, child) {
         // Combinar actividades online y offline
-        List<Activity> activitiesToShow = provider.activities;
-        if (provider.isLoading && offlineService.activities.isNotEmpty) {
-          activitiesToShow = offlineService.activities;
-        } else if (!provider.isLoading) {
-          // Combinar manteniendo los cambios locales
-          activitiesToShow = [...provider.activities];
-          for (final offlineActivity in offlineService.activities) {
+        List<Activity> activitiesToShow = [...offlineService.activities];
+
+        if (isConnected && !provider.isSyncing) {
+          for (final serverActivity in provider.activities) {
             final index =
-                activitiesToShow.indexWhere((a) => a.id == offlineActivity.id);
+                activitiesToShow.indexWhere((a) => a.id == serverActivity.id);
             if (index != -1) {
-              activitiesToShow[index] = offlineActivity;
+              // Mantener el estado local pero actualizar otros datos del servidor
+              final localActivity = activitiesToShow[index];
+              activitiesToShow[index] = serverActivity.copyWith(
+                localStatus: localActivity.localStatus,
+                pendingTimes: localActivity.pendingTimes,
+                isSynced: localActivity.pendingTimes.isEmpty,
+              );
             } else {
-              activitiesToShow.add(offlineActivity);
+              activitiesToShow.add(serverActivity);
             }
           }
         }
+
+        // Aplicar filtros de búsqueda, estado y fecha
+        List<Activity> filteredActivities = activitiesToShow.where((activity) {
+          // Filtro por término de búsqueda
+          if (provider.searchTerm.isNotEmpty) {
+            final term = provider.searchTerm.toLowerCase();
+            final folio = activity.folio?.toLowerCase() ?? '';
+            final technical = activity.technical?.toLowerCase() ?? '';
+            final clientName = activity.client?.toLowerCase() ?? '';
+
+            if (!folio.contains(term) &&
+                !technical.contains(term) &&
+                !clientName.contains(term)) {
+              return false;
+            }
+          }
+
+          // Filtro por estado
+          if (provider.status != null) {
+            final effectiveStatus = activity.localStatus > 0
+                ? activity.localStatus
+                : activity.maintenanceStatus;
+            if (effectiveStatus != provider.status) {
+              return false;
+            }
+          }
+
+          // Filtro por rango de fechas
+          if (provider.startInDate != null || provider.endInDate != null) {
+            final activityDate = DateTime(
+                activity.start.year, activity.start.month, activity.start.day);
+
+            if (provider.startInDate != null &&
+                activityDate.isBefore(DateTime(provider.startInDate!.year,
+                    provider.startInDate!.month, provider.startInDate!.day))) {
+              return false;
+            }
+
+            if (provider.endInDate != null &&
+                activityDate.isAfter(DateTime(provider.endInDate!.year,
+                    provider.endInDate!.month, provider.endInDate!.day))) {
+              return false;
+            }
+          }
+
+          return true;
+        }).toList();
 
         // Agrupar actividades por técnico
         final activitiesByTechnician =
             _groupActivitiesByTechnician(activitiesToShow);
         final technicianIds = activitiesByTechnician.keys.toList();
 
-        // Actividades a mostrar (filtradas si hay técnico seleccionado)
-        final filteredActivities = provider.selectedTechnicianId != null
-            ? activitiesByTechnician[provider.selectedTechnicianId] ?? []
-            : activitiesToShow;
+        // Aplicar filtro de técnico si está seleccionado
+        if (provider.selectedTechnicianId != null) {
+          filteredActivities = filteredActivities
+              .where((activity) =>
+                  activity.technical == provider.selectedTechnicianId)
+              .toList();
+        }
 
         return Column(
           children: [
@@ -235,8 +289,13 @@ class _CalendarWidgetState extends State<CalendarWidget> {
   }
  */
 
+// En la construcción de la lista, priorizar actividades locales durante sincronización
   Widget _buildListView(List<Activity> activities, ScheduleProvider provider) {
-    if (activities.isEmpty) {
+    // Durante sincronización, mostrar actividades locales
+    final activitiesToShow =
+        provider.isSyncing ? provider.activities : activities;
+
+    if (activitiesToShow.isEmpty) {
       return Center(
         child: Text(
           'No hay actividades disponibles',
@@ -246,7 +305,7 @@ class _CalendarWidgetState extends State<CalendarWidget> {
     }
 
     // Ordenar actividades según el criterio especificado
-    List<Activity> sortedActivities = _sortActivitiesByStatus(activities);
+    List<Activity> sortedActivities = _sortActivitiesByStatus(activitiesToShow);
 
     return ListView.builder(
       itemCount: sortedActivities.length,
@@ -288,9 +347,16 @@ class _CalendarWidgetState extends State<CalendarWidget> {
   }
 
   Widget _buildEventWidget(Activity activity, ScheduleProvider provider) {
+    final syncService = Provider.of<SyncService>(context, listen: false);
+    final isAnySyncing = provider.isSyncing || syncService.isSyncing;
+
     final offlineService = Provider.of<OfflineService>(context, listen: false);
-    final effectiveStatus = activity.localStatus > 0
-        ? activity.localStatus
+
+    // Durante sincronización, mostrar siempre el estado local
+    final effectiveStatus = isAnySyncing
+        ? activity.localStatus > 0
+            ? activity.localStatus
+            : activity.maintenanceStatus
         : activity.maintenanceStatus;
     final hourbaseInLocal = activity.pendingTimes.containsKey('hourBaseIn');
     final hourbaseInBackend = activity.hourBaseIn != null;

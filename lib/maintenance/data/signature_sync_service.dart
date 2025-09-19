@@ -19,22 +19,16 @@ class SignatureSyncService {
   SignatureSyncService({
     required this.authService,
   });
-
   Future<bool> syncPendingSignatures() async {
     try {
-      final user = authService.currentUser;
-      final token = user?.token;
+      // Obtener token directamente desde SharedPreferences
+      final prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString('auth_token');
+
       if (token == null) {
         print('❌ Token no encontrado para sincronización de firmas');
         return false;
       }
-
-      // Verificar validez del token
-/*       final isValid = await _validateToken(token);
-      if (!isValid) {
-        print('❌ Token inválido, no se pueden sincronizar firmas');
-        return false;
-      } */
 
       // Obtener firmas pendientes
       final pendingSignatures = await _dbHelper.getPendingSignatures();
@@ -60,21 +54,6 @@ class SignatureSyncService {
     }
   }
 
-/* 
-  Future<bool> _validateToken(String token) async {
-    try {
-      final response = await http.get(
-        Uri.parse('$baseUrl/api/validate-token'),
-        headers: {'Authorization': 'Bearer $token'},
-      ).timeout(const Duration(seconds: 10));
-
-      return response.statusCode == 200;
-    } catch (e) {
-      print('❌ Error validando token: $e');
-      return false;
-    }
-  }
- */
   Future<bool> _syncSingleSignature(
       Map<String, dynamic> signature, String token) async {
     int maintenanceId;

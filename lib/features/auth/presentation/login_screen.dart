@@ -1,128 +1,21 @@
-/* import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
-import '../controller/login_controller.dart';
-import '../../../home/home_screen.dart';
-import 'package:systemjvj/schedule/providers/schedule_provider.dart'; // Importación añadida
-
-class LoginScreen extends StatelessWidget {
-  const LoginScreen({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    final controller = Provider.of<LoginController>(context);
-    final primaryColor = const Color(0xFFF4C037);
-
-    return Scaffold(
-      body: Center(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(24.0),
-          child: Container(
-            constraints: const BoxConstraints(maxWidth: 600),
-            padding: const EdgeInsets.all(32),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(16),
-              boxShadow: const [
-                BoxShadow(
-                  blurRadius: 12,
-                  color: Colors.black12,
-                  offset: Offset(0, 4),
-                ),
-              ],
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                SizedBox(
-                  height: 100,
-                  child: Image.asset('assets/images/login_logo.jpg'),
-                ),
-                const SizedBox(height: 24),
-                const Text(
-                  '¡Bienvenido!',
-                  style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
-                ),
-                const SizedBox(height: 24),
-                TextField(
-                  decoration: const InputDecoration(
-                    labelText: 'Email',
-                    hintText: 'tu@email.com',
-                  ),
-                  keyboardType: TextInputType.emailAddress,
-                  onChanged: controller.setEmail,
-                ),
-                const SizedBox(height: 16),
-                TextField(
-                  decoration: const InputDecoration(
-                    labelText: 'Contraseña',
-                    hintText: '*********',
-                  ),
-                  obscureText: true,
-                  onChanged: controller.setPassword,
-                ),
-                const SizedBox(height: 12),
-                if (controller.error != null)
-                  Text(
-                    controller.error!,
-                    style: const TextStyle(color: Colors.red),
-                  ),
-                const SizedBox(height: 24),
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton(
-                    onPressed: controller.isLoading
-                        ? null
-                        : () async {
-                            final success = await controller.login();
-                            if (success) {
-                              // ACTUALIZAR ROL DEL USUARIO EN EL PROVIDER
-                              final scheduleProvider =
-                                  Provider.of<ScheduleProvider>(
-                                context,
-                                listen: false,
-                              );
-                              scheduleProvider.refreshUserRole();
-
-                              Navigator.of(context).pushReplacement(
-                                MaterialPageRoute(
-                                  builder: (context) => const HomeScreen(),
-                                ),
-                              );
-                            }
-                          },
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: primaryColor,
-                      foregroundColor: Colors.black,
-                      padding: const EdgeInsets.symmetric(vertical: 16),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                    ),
-                    child: controller.isLoading
-                        ? const CircularProgressIndicator()
-                        : const Text(
-                            'Ingresar',
-                            style: TextStyle(fontWeight: FontWeight.bold),
-                          ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
- */
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:systemjvj/features/auth/presentation/splashAnimationScreen.dart';
 import '../controller/login_controller.dart';
 import 'package:systemjvj/schedule/providers/schedule_provider.dart';
 
-class LoginScreen extends StatelessWidget {
+// 1. Cambiar a StatefulWidget
+class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
+
+  @override
+  // 2. Crear la clase de estado
+  _LoginScreenState createState() => _LoginScreenState();
+}
+
+class _LoginScreenState extends State<LoginScreen> {
+  // 3. Declarar la variable de estado dentro de la clase de estado
+  bool _isPasswordVisible = false;
 
   @override
   Widget build(BuildContext context) {
@@ -132,7 +25,7 @@ class LoginScreen extends StatelessWidget {
     return Scaffold(
       body: Stack(
         children: [
-          // Fondo con animación sutil de maquinaria
+          // Fondo y otros widgets
           Container(
             decoration: BoxDecoration(
               gradient: LinearGradient(
@@ -145,8 +38,6 @@ class LoginScreen extends StatelessWidget {
               ),
             ),
           ),
-
-          // Patrón de engranajes de fondo (sutil)
           Positioned(
             right: -50,
             top: -50,
@@ -159,7 +50,6 @@ class LoginScreen extends StatelessWidget {
               ),
             ),
           ),
-
           Positioned(
             left: -30,
             bottom: 100,
@@ -193,7 +83,6 @@ class LoginScreen extends StatelessWidget {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    // Logo con animación de latido
                     PulseAnimation(
                       child: SizedBox(
                         height: 100,
@@ -234,18 +123,33 @@ class LoginScreen extends StatelessWidget {
                       onChanged: controller.setEmail,
                     ),
                     const SizedBox(height: 16),
+                    // TextField de contraseña con lógica de estado
                     TextField(
                       decoration: InputDecoration(
                         labelText: 'Contraseña',
                         hintText: '*********',
                         prefixIcon: const Icon(Icons.lock),
+                        suffixIcon: IconButton(
+                          icon: Icon(
+                            _isPasswordVisible
+                                ? Icons.visibility
+                                : Icons.visibility_off,
+                          ),
+                          onPressed: () {
+                            // 4. Usar setState() para actualizar la UI
+                            setState(() {
+                              _isPasswordVisible = !_isPasswordVisible;
+                            });
+                          },
+                        ),
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(10),
                         ),
                         filled: true,
                         fillColor: Colors.grey[50],
                       ),
-                      obscureText: true,
+                      obscureText:
+                          !_isPasswordVisible, // ¡La negación es importante!
                       onChanged: controller.setPassword,
                     ),
                     const SizedBox(height: 12),
@@ -272,7 +176,6 @@ class LoginScreen extends StatelessWidget {
                                     listen: false,
                                   );
                                   scheduleProvider.refreshUserRole();
-
                                   Navigator.of(context).pushReplacement(
                                     MaterialPageRoute(
                                       builder: (context) =>
@@ -310,16 +213,6 @@ class LoginScreen extends StatelessWidget {
                       ),
                     ),
                     const SizedBox(height: 16),
-                    /*     
-                    TextButton(
-                      onPressed: () {
-                        // Acción para recuperar contraseña
-                      },
-                      child: const Text(
-                        '¿Olvidaste tu contraseña?',
-                        style: TextStyle(color: Colors.grey),
-                      ),
-                    ), */
                   ],
                 ),
               ),

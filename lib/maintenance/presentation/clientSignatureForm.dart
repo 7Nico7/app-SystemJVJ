@@ -13,9 +13,13 @@ import 'package:systemjvj/maintenance/data/signature_sync_service.dart';
 
 class ClientSignatureForm extends StatefulWidget {
   final String maintenanceId;
+  final String client;
   final AuthService authService;
   const ClientSignatureForm(
-      {super.key, required this.maintenanceId, required this.authService});
+      {super.key,
+      required this.maintenanceId,
+      required this.authService,
+      required this.client});
 
   @override
   _ClientSignatureFormState createState() => _ClientSignatureFormState();
@@ -136,7 +140,7 @@ class _ClientSignatureFormState extends State<ClientSignatureForm> {
     if (_selectedRating == null) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Por favor seleccione una calificación')),
+        const SnackBar(content: Text('POR FAVOR SELECCIONE UNA CALIFICACIÓN')),
       );
       return;
     }
@@ -144,7 +148,7 @@ class _ClientSignatureFormState extends State<ClientSignatureForm> {
     if (_signatureController.isEmpty && _signatureImage == null) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Por favor capture o suba una firma')),
+        const SnackBar(content: Text('POR FAVOR CAPTURE O SUBA UNA FIRMA')),
       );
       return;
     }
@@ -183,7 +187,7 @@ class _ClientSignatureFormState extends State<ClientSignatureForm> {
       if (!mounted) return;
       setState(() => _isSaved = true);
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Firma guardada localmente')),
+        const SnackBar(content: Text('FIRMA GUARDADA LOCALMENTE')),
       );
 
       _trySyncSignature();
@@ -206,7 +210,7 @@ class _ClientSignatureFormState extends State<ClientSignatureForm> {
     if (connectivityResult == ConnectivityResult.none) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Sin conexión a internet')),
+          const SnackBar(content: Text('SIN CONEXIÓN A INTERNET')),
         );
       }
       return;
@@ -225,13 +229,13 @@ class _ClientSignatureFormState extends State<ClientSignatureForm> {
 
       if (success && _isSynced && mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Firma sincronizada con éxito!')),
+          const SnackBar(content: Text('FIRMA SINCRONIZADA CON ÉXITO!')),
         );
       } else if (!success && mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
               content: Text(
-                  'Error en sincronización. Se reintentará automáticamente.')),
+                  'ERROR EN SINCRONIZACIÓN. SE REINTENTARÁ AUTOMÁTICAMENTE.')),
         );
       }
     } catch (e) {
@@ -259,7 +263,7 @@ class _ClientSignatureFormState extends State<ClientSignatureForm> {
           ),
           const SizedBox(height: 10),
           Text(
-            _isSynced ? 'Firma sincronizada' : 'Firma guardada localmente',
+            _isSynced ? 'FIRMA SINCRONIZADA' : 'FIRMA GUARDADA LOCALMENTE',
             style: TextStyle(
               color: _isSynced ? Colors.green : Colors.orange,
               fontSize: 18,
@@ -268,8 +272,8 @@ class _ClientSignatureFormState extends State<ClientSignatureForm> {
           const SizedBox(height: 5),
           Text(
             _isSynced
-                ? 'Sincronizado con el servidor'
-                : 'Se sincronizará automáticamente cuando haya conexión',
+                ? 'SINCRONIZADO CON EL SERVIDOR'
+                : 'SE SINCRONIZARÁ AUTOMÁTICAMENTE CUANDO HAYA CONEXIÓN',
             style: const TextStyle(fontStyle: FontStyle.italic),
             textAlign: TextAlign.center,
           ),
@@ -298,15 +302,15 @@ class _ClientSignatureFormState extends State<ClientSignatureForm> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text('Calificación del servicio:',
-            style: TextStyle(fontSize: 16)),
+        const Text('CALIFICACIÓN DEL SERVICIO:',
+            style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
         const SizedBox(height: 10),
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceAround,
           children: [
-            _buildRatingButton(3, 'Malo', Icons.sentiment_very_dissatisfied),
-            _buildRatingButton(2, 'Regular', Icons.sentiment_neutral),
-            _buildRatingButton(1, 'Bueno', Icons.sentiment_very_satisfied),
+            _buildRatingButton(3, 'MALO', Icons.sentiment_very_dissatisfied),
+            _buildRatingButton(2, 'REGULAR', Icons.sentiment_neutral),
+            _buildRatingButton(1, 'BUENO', Icons.sentiment_very_satisfied),
           ],
         ),
       ],
@@ -348,20 +352,23 @@ class _ClientSignatureFormState extends State<ClientSignatureForm> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text('Firma del cliente:', style: TextStyle(fontSize: 16)),
+        const Text('FIRMA DEL CLIENTE:',
+            style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
         const SizedBox(height: 10),
         Container(
           decoration: BoxDecoration(
             border: Border.all(color: Colors.grey),
             borderRadius: BorderRadius.circular(8),
           ),
-          child: _signatureImage != null
-              ? Image.memory(_signatureImage!, height: 200)
-              : Signature(
-                  controller: _signatureController,
-                  height: 200,
-                  backgroundColor: Colors.white,
-                ),
+          child: Center(
+            child: _signatureImage != null
+                ? Image.memory(_signatureImage!, height: 200)
+                : Signature(
+                    controller: _signatureController,
+                    height: 200,
+                    backgroundColor: Colors.white,
+                  ),
+          ),
         ),
         if (!_isSaved && _signatureImage == null) ...[
           const SizedBox(height: 10),
@@ -371,12 +378,12 @@ class _ClientSignatureFormState extends State<ClientSignatureForm> {
               ElevatedButton.icon(
                 onPressed: () => _signatureController.clear(),
                 icon: const Icon(Icons.delete),
-                label: const Text('Limpiar'),
+                label: const Text('LIMPIAR'),
               ),
               ElevatedButton.icon(
                 onPressed: _pickImage,
                 icon: const Icon(Icons.upload),
-                label: const Text('Subir imagen'),
+                label: const Text('SUBIR IMAGEN'),
               ),
             ],
           ),
@@ -397,7 +404,7 @@ class _ClientSignatureFormState extends State<ClientSignatureForm> {
         children: [
           Icon(Icons.sync),
           SizedBox(width: 10),
-          Text('Sincronizar ahora', style: TextStyle(fontSize: 16)),
+          Text('SINCRONIZAR AHORA', style: TextStyle(fontSize: 16)),
         ],
       ),
     );
@@ -407,7 +414,13 @@ class _ClientSignatureFormState extends State<ClientSignatureForm> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Confirmación de servicio'),
+        title: const Text(
+          'FIRMA DE CLIENTE',
+          style: TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
@@ -416,9 +429,12 @@ class _ClientSignatureFormState extends State<ClientSignatureForm> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('Orden: ${widget.maintenanceId}',
+                  Text('CLIENTE: ${widget.client}',
+                      textAlign: TextAlign.justify,
                       style: const TextStyle(
-                          fontWeight: FontWeight.bold, fontSize: 18)),
+                        fontWeight: FontWeight.bold,
+                        fontSize: 14,
+                      )),
                   const SizedBox(height: 20),
                   _buildRatingSelector(),
                   const SizedBox(height: 30),
@@ -437,11 +453,11 @@ class _ClientSignatureFormState extends State<ClientSignatureForm> {
                           padding: const EdgeInsets.symmetric(
                               horizontal: 40, vertical: 15),
                         ),
-                        child: const Text('Guardar Firma',
+                        child: const Text('GUARDAR FIRMA',
                             style: TextStyle(fontSize: 18)),
                       ),
                     ),
-                  if (_isSaved && !_isSynced) Center(child: _buildSyncButton()),
+                  /*  if (_isSaved && !_isSynced) Center(child: _buildSyncButton()), */
                 ],
               ),
             ),
